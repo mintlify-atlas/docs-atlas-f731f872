@@ -38,7 +38,7 @@ If the signature is missing or does not match, the endpoint returns `400` with `
 | `checkout.session.completed` | Activates the subscription; stores `stripe_customer_id` and `stripe_subscription_id` |
 | `customer.subscription.created` | Syncs the new subscription state to the local `suscripciones_clinica` record |
 | `customer.subscription.updated` | Updates plan, billing period dates, and `auto_renovar` flag |
-| `customer.subscription.deleted` | Marks the subscription as canceled (`estado = 'deleted'`) |
+| `customer.subscription.deleted` | Marks the subscription as canceled (`estado = 'canceled'`) |
 
 ### Event: `checkout.session.completed`
 

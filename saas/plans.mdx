@@ -29,8 +29,8 @@ DentalConnect offers three subscription tiers. Each plan is stored in the `saas_
   <Card title="Ultra" icon="zap">
     **$1,999 MXN / month**
 
-    - Unlimited doctors
-    - Unlimited patients
+    - Up to 999 doctors
+    - Up to 999,999 patients
     - Everything in Premium
     - Multi-branch support
     - Priority support
@@ -49,8 +49,8 @@ Plans are seeded into the `saas_planes` table by the migration `2026_03_13_00000
 | `nivel` | tinyint | Tier level: `1`, `2`, `3` |
 | `precio_mensual` | decimal(10,2) | Monthly price in MXN |
 | `stripe_price_id` | varchar(120) | Stripe Price ID for Checkout |
-| `max_doctores` | int | Maximum doctor users (`null` = unlimited) |
-| `max_pacientes` | int | Maximum patient records (`null` = unlimited) |
+| `max_doctores` | int | Maximum doctor users. Seeded values: `2` (basic), `8` (premium), `999` (ultra) |
+| `max_pacientes` | int | Maximum patient records. Seeded values: `500` (basic), `5000` (premium), `999999` (ultra) |
 | `features` | json | Array of feature strings shown on the landing page |
 | `activo` | boolean | Whether the plan is offered in checkout |
 

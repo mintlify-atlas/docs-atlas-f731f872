@@ -190,7 +190,7 @@ Returns the 10 most recent clinical evolution (SOAP-style progress notes) entrie
       Date and time of the entry in ISO 8601 format.
     </ResponseField>
     <ResponseField name="descripcion_avance" type="string">
-      Progress description (up to 100 characters).
+      Progress description. Database column is `varchar(100)`.
     </ResponseField>
     <ResponseField name="plan_tratamiento" type="string | null">
       Treatment plan notes.
@@ -252,7 +252,7 @@ Creates a new clinical evolution entry for a patient. An image may optionally be
 Send as `multipart/form-data` when attaching an image, or `application/x-www-form-urlencoded` for text-only entries.
 
 <ParamField body="descripcion_avance" type="string" required>
-  Progress description. Maximum 500 characters.
+  Progress description. The controller validates `max:500`, but the database column is `varchar(100)` — keep entries concise to avoid truncation.
 </ParamField>
 
 <ParamField body="plan_tratamiento" type="string">

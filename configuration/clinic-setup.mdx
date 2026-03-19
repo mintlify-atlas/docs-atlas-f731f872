@@ -35,14 +35,19 @@ Every DentalConnect tenant is a single clinic record in the `clinicas` table, id
   <Step title="Update your clinic profile">
     Submit the clinic form to `POST /configuracion/clinica`. The editable fields are:
 
-    | Field | Description |
-    |-------|-------------|
-    | `nombre_comercial` | Commercial name of the clinic |
-    | `numero_telefono` | Contact phone number (up to 15 characters) |
-    | `localidad` | City or locality (up to 100 characters) |
-    | `estado` | State or region (up to 50 characters) |
-    | `codigo_postal` | Postal code (up to 10 characters) |
-    | `config_anticipo_pct` | Deposit percentage required at booking (decimal, e.g. `30.00` for 30%) |
+    | Field | Validation | Description |
+    |-------|------------|-------------|
+    | `nombre_comercial` | required, max 150, letters only | Commercial name of the clinic |
+    | `numero_telefono` | nullable, max 20, digits only | Contact phone number |
+    | `calle` | nullable, max 150 | Street address |
+    | `ciudad` | nullable, max 100, letters only | City |
+    | `municipio` | nullable, max 100, letters only | Municipality |
+    | `estado` | nullable, max 50, letters only | State or region |
+    | `pais` | nullable, max 50 | Country (defaults to `México`) |
+    | `codigo_postal` | nullable, max 10, digits only | Postal code |
+    | `latitud` | nullable, numeric, between -90 and 90 | GPS latitude |
+    | `longitud` | nullable, numeric, between -180 and 180 | GPS longitude |
+    | `config_anticipo_pct` | nullable, numeric, 0–100 | Deposit percentage required at booking |
 
     On success the page reloads with a confirmation message.
   </Step>

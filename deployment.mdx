@@ -99,13 +99,12 @@ Set the following environment variables in your hosting platform's dashboard bef
     POST https://your-domain.com/stripe/webhook
     ```
 
-    Select at minimum the following events:
+    Select the following events:
 
     - `checkout.session.completed`
+    - `customer.subscription.created`
     - `customer.subscription.updated`
     - `customer.subscription.deleted`
-    - `invoice.payment_succeeded`
-    - `invoice.payment_failed`
 
     After creating the endpoint, copy the **Signing secret** (`whsec_...`) and set it as the `STRIPE_WEBHOOK_SECRET` environment variable.
 

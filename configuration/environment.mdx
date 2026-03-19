@@ -11,14 +11,11 @@ Never commit your `.env` file or any file containing real keys, passwords, or St
 
 ## Create your .env file
 
-A `.env.example` template is not included in this repository, so create your `.env` manually by copying the structure below:
+This repository does not ship a `.env.example` file. Create your `.env` in the project root and populate each variable described in the tables below, then generate the app key:
 
 ```bash
-cp .env.example .env        # if .env.example is provided
-php artisan key:generate    # generates APP_KEY automatically
+php artisan key:generate    # generates APP_KEY and writes it into .env
 ```
-
-If starting from scratch, create `.env` in the project root and populate each variable described in the tables below.
 
 ---
 

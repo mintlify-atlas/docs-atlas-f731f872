@@ -58,22 +58,6 @@ Content-Type: application/json
 
 On success the API returns HTTP 201 with the created record.
 
-## Updating a tooth entry
-
-To correct or add detail to an existing entry, send only the fields you want to change:
-
-```http
-PUT /api/odontograma/{id_odontograma}
-Content-Type: application/json
-
-{
-  "estado_diente": "tratamiento",
-  "observaciones": "Corona provisional colocada"
-}
-```
-
-Null values are ignored — only non-null fields are written. `numero_diente` and `id_paciente` cannot be changed after creation.
-
 ## Deleting an entry
 
 ```http
@@ -86,13 +70,16 @@ Returns HTTP 200 on success or HTTP 404 if the record does not exist. There is n
   Deleting an odontogram entry is irreversible. Use the `observaciones` field to note corrections instead of deleting records when possible.
 </Warning>
 
+<Note>
+  There is no update endpoint for odontogram entries. To correct an existing entry, delete it and create a new one with the corrected values.
+</Note>
+
 ## AJAX interaction summary
 
-All four odontogram operations are JSON endpoints — no page reload is required:
+All odontogram operations are JSON endpoints — no page reload is required:
 
 | Action | Method | Endpoint |
 |---|---|---|
 | List all entries for a patient | `GET` | `/api/pacientes/{id}/odontograma` |
 | Add an entry | `POST` | `/api/pacientes/{id}/odontograma` |
-| Update an entry | `PUT` | `/api/odontograma/{id_odontograma}` |
 | Delete an entry | `DELETE` | `/api/odontograma/{id_odontograma}` |

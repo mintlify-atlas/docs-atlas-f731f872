@@ -60,7 +60,7 @@ Evolutions record a patient's progress at each visit. They are stored in `evoluc
 | Patient | `id_paciente` | FK → `pacientes` |
 | Service | `id_servicio` | FK → `catalogo_servicios` (nullable) |
 | Date | `fecha_evolucion` | Set automatically to `now()` on creation |
-| Progress description | `descripcion_avance` | Required, max 500 characters |
+| Progress description | `descripcion_avance` | Required, max 100 characters (`varchar(100)` in the database) |
 | Treatment plan | `plan_tratamiento` | Optional free text |
 | SOAP — subjective | `subjetivo_soap` | Optional |
 | SOAP — objective | `objetivo_soap` | Optional |
