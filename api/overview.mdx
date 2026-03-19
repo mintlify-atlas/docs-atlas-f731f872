@@ -1,0 +1,60 @@
+---
+title: "API overview"
+description: "Internal AJAX API reference for DentalConnect"
+---
+
+<Note>
+  These are **internal web routes** used exclusively by the DentalConnect Blade + JavaScript frontend. They are not a public REST API and are not intended for third-party integration.
+</Note>
+
+## How it works
+
+DentalConnect's internal API is a set of Laravel web routes that return JSON. All data is automatically scoped to the authenticated user's clinic (`id_clinica` from session), so you never need to pass a clinic identifier explicitly.
+
+## Authentication
+
+All routes under `/api/*` and `/citas/*` require an active session. There is no token-based authentication — the user must be logged in via the standard session cookie.
+
+If the request is unauthenticated, Laravel redirects to `/login` (or returns a `401` if the request sends `Accept: application/json`).
+
+## Base URL
+
+Requests are made relative to your application's `APP_URL`:
+
+```
+https://<your-APP_URL>
+```
+
+## CSRF protection
+
+All `POST` and `DELETE` requests require a valid CSRF token. The Blade frontend injects this automatically via the `@csrf` directive or the `meta[name="csrf-token"]` tag.
+
+For AJAX calls, include the token in the request header:
+
+```bash
+X-CSRF-TOKEN: <token from meta tag>
+```
+
+The Stripe webhook (`POST /stripe/webhook`) is excluded from CSRF protection and validates requests using an HMAC-SHA256 signature instead.
+
+## Multi-tenant scoping
+
+Every authenticated user belongs to exactly one clinic. All database queries filter by `id_clinica` automatically — you cannot read or write data from another clinic.
+
+## Endpoint index
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/citas/{id}/modal-detalles` | Full appointment detail for modal display |
+| `POST` | `/api/citas/{id}/completar` | Mark appointment as completed |
+| `GET` | `/api/calendario/disponibilidad` | Day-by-day availability for a calendar month |
+| `GET` | `/api/calendario/horas-ocupadas` | Occupied time slots for a specific date |
+| `POST` | `/citas/{id}/actualizar` | Update appointment state, schedule, and financials |
+| `POST` | `/api/pacientes/{id}/foto` | Upload progress photo for a patient |
+| `GET` | `/api/pacientes/{id}/citas` | Appointment history for a patient |
+| `GET` | `/api/pacientes/{id}/evoluciones` | Clinical evolution entries for a patient |
+| `POST` | `/api/pacientes/{id}/evoluciones` | Create a new clinical evolution entry |
+| `GET` | `/api/pacientes/{id}/odontograma` | All odontogram records for a patient |
+| `POST` | `/api/pacientes/{id}/odontograma` | Create an odontogram record |
+| `DELETE` | `/api/odontograma/{id_odontograma}` | Delete a specific odontogram entry |
+| `POST` | `/stripe/webhook` | Stripe subscription event processing (public) |

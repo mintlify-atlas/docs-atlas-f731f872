@@ -1,0 +1,206 @@
+---
+title: "Stripe integration"
+description: "Configure Stripe for subscription payments and webhooks"
+---
+
+DentalConnect uses Stripe Checkout to handle subscription payments. The integration is implemented directly via the Stripe REST API using Laravel's `Http` facade — no Stripe SDK package is required.
+
+## Environment variables
+
+Add the following variables to your `.env` file:
+
+| Variable | Description |
+|---|---|
+| `STRIPE_KEY` | Publishable key from the Stripe Dashboard |
+| `STRIPE_SECRET` | Secret key used to authenticate API calls |
+| `STRIPE_WEBHOOK_SECRET` | Signing secret for validating webhook payloads |
+
+```bash
+STRIPE_KEY=pk_live_...
+STRIPE_SECRET=sk_live_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+```
+
+<Warning>
+  Never commit `STRIPE_SECRET` or `STRIPE_WEBHOOK_SECRET` to version control. These keys grant full access to your Stripe account and webhook signature validation. Use environment-specific `.env` files and ensure `.env` is listed in `.gitignore`.
+</Warning>
+
+These values are read from `config/services.php` using the keys `stripe.key`, `stripe.secret`, and `stripe.webhook_secret`.
+
+## Complete setup workflow
+
+<Steps>
+  <Step title="Create products and prices in Stripe">
+    In the Stripe Dashboard, create a product for each plan (Basic, Premium, Ultra) with a recurring monthly price. Copy each **Price ID** (format: `price_...`).
+  </Step>
+
+  <Step title="Seed Price IDs into saas_planes">
+    Update the `stripe_price_id` column in the `saas_planes` table for each plan slug:
+
+    ```sql
+    UPDATE saas_planes SET stripe_price_id = 'price_...' WHERE slug = 'basic';
+    UPDATE saas_planes SET stripe_price_id = 'price_...' WHERE slug = 'premium';
+    UPDATE saas_planes SET stripe_price_id = 'price_...' WHERE slug = 'ultra';
+    ```
+
+    Checkout will return an error to the user if `stripe_price_id` is `null` for the selected plan.
+  </Step>
+
+  <Step title="Add environment variables">
+    Copy your Stripe secret key and publishable key from the Stripe Dashboard into your `.env` file.
+
+    ```bash
+    STRIPE_KEY=pk_live_...
+    STRIPE_SECRET=sk_live_...
+    ```
+  </Step>
+
+  <Step title="Register the webhook endpoint in Stripe">
+    In the Stripe Dashboard, go to **Developers → Webhooks → Add endpoint**.
+
+    - **Endpoint URL:** `https://yourdomain.com/stripe/webhook`
+    - **Events to send:**
+      - `checkout.session.completed`
+      - `customer.subscription.created`
+      - `customer.subscription.updated`
+      - `customer.subscription.deleted`
+
+    After saving, copy the **Signing secret** (format: `whsec_...`).
+  </Step>
+
+  <Step title="Add the webhook signing secret">
+    ```bash
+    STRIPE_WEBHOOK_SECRET=whsec_...
+    ```
+
+    The webhook handler validates every incoming request using this secret. Requests with an invalid signature return HTTP `400`.
+  </Step>
+
+  <Step title="Exclude the webhook route from CSRF protection">
+    The `POST /stripe/webhook` route must be excluded from Laravel's CSRF middleware. This is configured in `bootstrap/app.php`. Verify the exclusion is in place before going live.
+  </Step>
+</Steps>
+
+## Checkout flow
+
+When a clinic user selects a plan, the application creates a Stripe Checkout session and redirects the browser to Stripe's hosted payment page.
+
+**Initiate checkout:**
+
+```
+POST /suscripciones/checkout/{planSlug}
+```
+
+Requires authentication. The `{planSlug}` must match a `slug` value in `saas_planes` where `activo = true`.
+
+The session is created with the following parameters:
+
+```php
+// app/Http/Controllers/SuscripcionController.php
+$response = Http::asForm()
+    ->withBasicAuth(config('services.stripe.secret'), '')
+    ->post('https://api.stripe.com/v1/checkout/sessions', [
+        'mode'                    => 'subscription',
+        'line_items[0][price]'    => $plan->stripe_price_id,
+        'line_items[0][quantity]' => 1,
+        'customer_email'          => Auth::user()->email,
+        'success_url'             => route('suscripciones.success') . '?session_id={CHECKOUT_SESSION_ID}',
+        'cancel_url'              => route('suscripciones.cancel'),
+        'metadata[id_clinica]'    => (string) $clinica->id_clinica,
+        'metadata[id_plan]'       => (string) $plan->id_plan,
+    ]);
+```
+
+The `id_clinica` and `id_plan` metadata fields are used by the webhook handler to associate the completed payment with the correct clinic and plan.
+
+A `SuscripcionClinica` record with `estado = 'pending'` is created immediately after the session is initiated, before the user completes payment.
+
+### Success redirect
+
+```
+GET /suscripciones/success?session_id={CHECKOUT_SESSION_ID}
+```
+
+Stripe appends the session ID to the URL. The controller fetches the session from the Stripe API and verifies `payment_status = 'paid'` before redirecting to `/suscripciones`.
+
+### Cancel redirect
+
+```
+GET /suscripciones/cancel
+```
+
+The user is redirected to the landing page with an error message indicating the payment was canceled.
+
+## Webhook endpoint
+
+```
+POST /stripe/webhook
+```
+
+This route is public (no authentication required) and excluded from CSRF verification. All security relies on signature validation.
+
+### Signature validation
+
+The handler validates the `Stripe-Signature` header using HMAC-SHA256:
+
+```php
+// app/Http/Controllers/SuscripcionController.php
+private function isValidStripeSignature(string $payload, string $header, string $secret): bool
+{
+    $parts = [];
+    foreach (explode(',', $header) as $segment) {
+        [$k, $v] = array_pad(explode('=', trim($segment), 2), 2, null);
+        if ($k && $v) {
+            $parts[$k][] = $v;
+        }
+    }
+
+    $timestamp  = $parts['t'][0] ?? null;
+    $signatures = $parts['v1'] ?? [];
+
+    $expected = hash_hmac('sha256', $timestamp . '.' . $payload, $secret);
+
+    foreach ($signatures as $signature) {
+        if (hash_equals($expected, $signature)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+```
+
+The `Stripe-Signature` header contains a timestamp (`t=`) and one or more HMAC signatures (`v1=`). The expected signature is computed as `HMAC-SHA256(timestamp + "." + raw_payload, webhook_secret)`. Constant-time comparison via `hash_equals` prevents timing attacks.
+
+If `STRIPE_WEBHOOK_SECRET` is not set in the environment, signature validation is skipped entirely.
+
+### Handled events
+
+| Event | Handler | Effect |
+|---|---|---|
+| `checkout.session.completed` | `handleCheckoutCompleted` | Upserts `SuscripcionClinica` with `stripe_customer_id`, `stripe_subscription_id`, and `estado = 'active'` (or `'incomplete'` if not paid) |
+| `customer.subscription.created` | `handleSubscriptionEvent` | Creates or updates the subscription record with full period and status data |
+| `customer.subscription.updated` | `handleSubscriptionEvent` | Updates plan, amount, period dates, `auto_renovar`, and status |
+| `customer.subscription.deleted` | `handleSubscriptionEvent` | Sets `estado` to `'canceled'` on the local record |
+
+For `customer.subscription.*` events, the handler resolves the local record by `stripe_subscription_id` first, then falls back to `stripe_customer_id` if no match is found. The plan is resolved by matching `items.data.0.price.id` from the event payload against `saas_planes.stripe_price_id`.
+
+<AccordionGroup>
+  <Accordion title="What if the webhook fires before the success redirect?">
+    This is the expected Stripe behavior. The `checkout.session.completed` webhook may arrive before the user's browser reaches the success URL. The success route independently verifies the session status from the Stripe API, so the two flows are decoupled.
+  </Accordion>
+  <Accordion title="What if no local subscription record is found for a subscription event?">
+    The handler logs a warning to the Laravel log channel and returns without making any changes:
+
+    ```php
+    Log::warning('Webhook Stripe sin suscripcion local asociada', [
+        'stripe_subscription_id' => $stripeSubscriptionId,
+    ]);
+    ```
+
+    This typically happens if a subscription is created directly in the Stripe Dashboard without going through the checkout flow.
+  </Accordion>
+  <Accordion title="How is auto-renewal tracked?">
+    The `auto_renovar` boolean on `SuscripcionClinica` is set from `cancel_at_period_end` in the Stripe subscription object. When `cancel_at_period_end = true`, `auto_renovar` is set to `false`, indicating the subscription will not renew at the end of the current period.
+  </Accordion>
+</AccordionGroup>

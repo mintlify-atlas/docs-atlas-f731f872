@@ -1,0 +1,124 @@
+---
+title: "Treatments"
+description: "Track treatment plans and clinical evolutions"
+---
+
+In DentalConnect, **treatments** are clinic-defined services stored in `catalogo_servicios`. Each service has a name, base price, and category. Separately, **clinical evolutions** (`evolucion_tratamiento`) track a patient's progress through a treatment plan over multiple visits.
+
+## Treatment catalogue
+
+The treatment catalogue is managed from the **Treatments** page (`/tratamientos`). There are no separate create or edit pages — all actions happen through modals on the index view.
+
+### Treatment fields
+
+| Field | Column | Validation |
+|---|---|---|
+| Name | `nombre_servicio` | Required, string, max 255, unique per clinic |
+| Base price | `precio_base` | Required, numeric, min 0 |
+| Category | `categoria` | Required, string, max 100 |
+
+All treatments are scoped to `id_clinica` — each clinic maintains its own catalogue.
+
+### Creating a treatment
+
+```http
+POST /tratamientos
+
+nombre=Limpieza+dental&precio=350.00&categoria=Preventivo
+```
+
+If a treatment with the same `nombre_servicio` already exists for the clinic, the request is rejected with an error message.
+
+### Updating a treatment
+
+```http
+PUT /tratamientos/{id}
+
+nombre=Limpieza+dental+ultrasónica&precio=400.00&categoria=Preventivo
+```
+
+Duplicate name checks exclude the record being updated.
+
+### Deleting a treatment
+
+```http
+DELETE /tratamientos/{id}
+```
+
+<Warning>
+  A treatment cannot be deleted if it is referenced by an existing appointment (`citas.id_servicio`). The system returns a user-friendly error rather than a 500. Archive or rename the treatment if it is no longer offered.
+</Warning>
+
+## Clinical evolutions
+
+Evolutions record a patient's progress at each visit. They are stored in `evolucion_tratamiento` and accessed through the patient historial API.
+
+### Evolution fields
+
+| Field | Column | Notes |
+|---|---|---|
+| Patient | `id_paciente` | FK → `pacientes` |
+| Service | `id_servicio` | FK → `catalogo_servicios` (nullable) |
+| Date | `fecha_evolucion` | Set automatically to `now()` on creation |
+| Progress description | `descripcion_avance` | Required, max 500 characters |
+| Treatment plan | `plan_tratamiento` | Optional free text |
+| SOAP — subjective | `subjetivo_soap` | Optional |
+| SOAP — objective | `objetivo_soap` | Optional |
+| Patient status | `estado_paciente` | Optional, max 50 characters |
+
+### Creating an evolution entry
+
+Post to the patient historial endpoint. An image may be attached:
+
+```http
+POST /api/pacientes/{id}/evoluciones
+Content-Type: multipart/form-data
+
+descripcion_avance=Reducción visible de la inflamación
+plan_tratamiento=Continuar con antibiótico 5 días más
+imagen=<optional image file>   # jpeg, png, jpg, webp — max 5 MB
+```
+
+If an image is included it is stored in `storage/app/public/evoluciones/` and an `archivos` record is created with `descripcion = 'Evolucion_{id_evolucion}'`.
+
+### Viewing evolution history
+
+Fetch the last 10 evolutions for a patient (ordered by date descending):
+
+```http
+GET /api/pacientes/{id}/evoluciones
+```
+
+Each evolution in the response includes an `imagenes` array. If an attached image exists it is returned with a relative path under `storage/`.
+
+## Progress photo upload
+
+A standalone profile / progress photo can be uploaded separately from evolutions:
+
+```http
+POST /api/pacientes/{id}/foto
+Content-Type: multipart/form-data
+
+foto=<image file>   # jpeg, png, jpg, webp — max 5 MB
+```
+
+This endpoint replaces any existing photo for the patient. The previous file is deleted from disk before the new one is written. The URL of the stored file is returned in the response:
+
+```json
+{
+  "success": true,
+  "url": "https://your-domain.com/storage/pacientes/fotos/paciente_42_1710000000.jpg"
+}
+```
+
+## Available API routes
+
+| Action | Method | Route |
+|---|---|---|
+| List treatments | `GET` | `/tratamientos` |
+| Create treatment | `POST` | `/tratamientos` |
+| Update treatment | `PUT` | `/tratamientos/{id}` |
+| Delete treatment | `DELETE` | `/tratamientos/{id}` |
+| List evolutions | `GET` | `/api/pacientes/{id}/evoluciones` |
+| Create evolution | `POST` | `/api/pacientes/{id}/evoluciones` |
+| Upload progress photo | `POST` | `/api/pacientes/{id}/foto` |

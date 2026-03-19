@@ -1,0 +1,192 @@
+---
+title: "Environment variables"
+description: "Configure your DentalConnect environment for local development and production"
+---
+
+DentalConnect reads its configuration from a `.env` file in the project root. This file is never committed to version control — it holds secrets and environment-specific values that differ between local development and production.
+
+<Warning>
+Never commit your `.env` file or any file containing real keys, passwords, or Stripe secrets to version control. Add `.env` to your `.gitignore`.
+</Warning>
+
+## Create your .env file
+
+A `.env.example` template is not included in this repository, so create your `.env` manually by copying the structure below:
+
+```bash
+cp .env.example .env        # if .env.example is provided
+php artisan key:generate    # generates APP_KEY automatically
+```
+
+If starting from scratch, create `.env` in the project root and populate each variable described in the tables below.
+
+---
+
+## Application variables
+
+| Variable | Description | Required | Example |
+|----------|-------------|----------|---------|
+| `APP_NAME` | Display name for the application | Yes | `DentalConnect` |
+| `APP_ENV` | Runtime environment | Yes | `local` / `production` |
+| `APP_KEY` | 32-character encryption key — generate with `php artisan key:generate` | Yes | `base64:abc123...` |
+| `APP_DEBUG` | Show detailed error pages. Set to `false` in production | Yes | `true` / `false` |
+| `APP_URL` | Full base URL of the application, including scheme | Yes | `http://localhost:8000` |
+
+```env
+APP_NAME=DentalConnect
+APP_ENV=local
+APP_KEY=
+APP_DEBUG=true
+APP_URL=http://localhost:8000
+```
+
+<Warning>
+Set `APP_DEBUG=false` and `APP_ENV=production` in all production deployments. Leaving debug mode on exposes stack traces and internal configuration to end users.
+</Warning>
+
+---
+
+## Database variables
+
+DentalConnect requires a MySQL database. All clinic data, users, appointments, and billing records are stored here.
+
+| Variable | Description | Required | Example |
+|----------|-------------|----------|---------|
+| `DB_CONNECTION` | Database driver | Yes | `mysql` |
+| `DB_HOST` | Database server hostname or IP | Yes | `127.0.0.1` |
+| `DB_PORT` | Database server port | Yes | `3306` |
+| `DB_DATABASE` | Name of the database to connect to | Yes | `dentalconnect` |
+| `DB_USERNAME` | Database user | Yes | `root` |
+| `DB_PASSWORD` | Database password | Yes | `secret` |
+
+```env
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=dentalconnect
+DB_USERNAME=root
+DB_PASSWORD=
+```
+
+After setting these values, run migrations to create all tables:
+
+```bash
+php artisan migrate
+```
+
+---
+
+## Stripe variables
+
+DentalConnect uses Stripe for SaaS subscription billing. Stripe Checkout handles plan purchases, and a webhook endpoint keeps subscription state in sync.
+
+| Variable | Description | Required | Example |
+|----------|-------------|----------|---------|
+| `STRIPE_KEY` | Stripe publishable key (safe to expose in frontend) | Yes | `pk_live_...` |
+| `STRIPE_SECRET` | Stripe secret key (server-side only — never expose) | Yes | `sk_live_...` |
+| `STRIPE_WEBHOOK_SECRET` | Webhook signing secret from the Stripe dashboard | Yes | `whsec_...` |
+
+```env
+STRIPE_KEY=pk_test_...
+STRIPE_SECRET=sk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+```
+
+<Note>
+The Stripe webhook endpoint is `POST /stripe/webhook`. Register this URL in your Stripe dashboard under **Developers → Webhooks** and copy the signing secret into `STRIPE_WEBHOOK_SECRET`. The CSRF exemption for this route is configured in `bootstrap/app.php`.
+</Note>
+
+<Info>
+Each subscription plan in the `saas_planes` table must have a corresponding Stripe Price ID stored in the `stripe_price_id` column. Create prices in the Stripe dashboard for the `basic`, `premium`, and `ultra` plan slugs and populate this column before accepting live payments.
+</Info>
+
+---
+
+## Session, cache, and queue variables
+
+DentalConnect uses session-based authentication. The session stores the authenticated user's `id_clinica` to enforce multi-tenant data isolation.
+
+| Variable | Description | Required | Example |
+|----------|-------------|----------|---------|
+| `SESSION_DRIVER` | Session storage backend | Yes | `database` |
+| `CACHE_STORE` | Cache driver | Yes | `database` / `redis` |
+| `QUEUE_CONNECTION` | Queue driver for background jobs | Yes | `sync` / `database` |
+
+```env
+SESSION_DRIVER=database
+CACHE_STORE=database
+QUEUE_CONNECTION=sync
+```
+
+<Tip>
+For local development, `QUEUE_CONNECTION=sync` runs jobs immediately without a worker. In production, switch to `database` or `redis` and run `php artisan queue:work`.
+</Tip>
+
+---
+
+## Mail variables
+
+Mail variables are required if you configure password reset emails or appointment reminders.
+
+| Variable | Description | Required | Example |
+|----------|-------------|----------|---------|
+| `MAIL_MAILER` | Mail transport driver | No | `smtp` |
+| `MAIL_HOST` | SMTP server hostname | No | `smtp.mailgun.org` |
+| `MAIL_PORT` | SMTP server port | No | `587` |
+| `MAIL_USERNAME` | SMTP authentication username | No | `your@email.com` |
+| `MAIL_PASSWORD` | SMTP authentication password | No | `mailpassword` |
+| `MAIL_ENCRYPTION` | Encryption protocol | No | `tls` |
+| `MAIL_FROM_ADDRESS` | Sender address for outgoing mail | No | `noreply@dentalconnect.mx` |
+| `MAIL_FROM_NAME` | Sender display name | No | `DentalConnect` |
+
+```env
+MAIL_MAILER=smtp
+MAIL_HOST=smtp.mailgun.org
+MAIL_PORT=587
+MAIL_USERNAME=
+MAIL_PASSWORD=
+MAIL_ENCRYPTION=tls
+MAIL_FROM_ADDRESS=noreply@dentalconnect.mx
+MAIL_FROM_NAME="DentalConnect"
+```
+
+---
+
+## Full .env template
+
+```env
+# Application
+APP_NAME=DentalConnect
+APP_ENV=local
+APP_KEY=
+APP_DEBUG=true
+APP_URL=http://localhost:8000
+
+# Database
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=dentalconnect
+DB_USERNAME=root
+DB_PASSWORD=
+
+# Stripe
+STRIPE_KEY=
+STRIPE_SECRET=
+STRIPE_WEBHOOK_SECRET=
+
+# Session, Cache, Queue
+SESSION_DRIVER=database
+CACHE_STORE=database
+QUEUE_CONNECTION=sync
+
+# Mail (optional)
+MAIL_MAILER=smtp
+MAIL_HOST=
+MAIL_PORT=587
+MAIL_USERNAME=
+MAIL_PASSWORD=
+MAIL_ENCRYPTION=tls
+MAIL_FROM_ADDRESS=noreply@dentalconnect.mx
+MAIL_FROM_NAME="DentalConnect"
+```

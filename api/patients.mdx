@@ -1,0 +1,313 @@
+---
+title: "Patients API"
+description: "AJAX endpoints for patient history and file uploads"
+---
+
+<Note>
+  All endpoints require an active session. Include `X-CSRF-TOKEN` in the headers of every `POST` request.
+</Note>
+
+## Upload progress photo
+
+```
+POST /api/pacientes/{id}/foto
+```
+
+Uploads or replaces the progress photo for a patient. If a photo already exists for the patient, the previous file is deleted from storage and replaced with the new one.
+
+### Path parameters
+
+<ParamField path="id" type="integer" required>
+  The `id_paciente` of the patient.
+</ParamField>
+
+### Request
+
+Send as `multipart/form-data`.
+
+<ParamField body="foto" type="file" required>
+  Image file to upload. Accepted formats: `jpeg`, `png`, `jpg`, `webp`. Maximum size: 5 MB.
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  `true` when the upload completed successfully.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  `"Foto actualizada correctamente."` on success.
+</ResponseField>
+
+<ResponseField name="url" type="string">
+  Public URL of the stored photo, e.g. `"https://your-app-url/storage/pacientes/fotos/paciente_7_1711234567.jpg"`.
+</ResponseField>
+
+### Example
+
+```bash
+curl -X POST https://your-app-url/api/pacientes/7/foto \
+  -H "Accept: application/json" \
+  -H "X-CSRF-TOKEN: <token>" \
+  --cookie "laravel_session=<session>" \
+  -F "foto=@/path/to/photo.jpg"
+```
+
+```json
+{
+  "success": true,
+  "message": "Foto actualizada correctamente.",
+  "url": "https://your-app-url/storage/pacientes/fotos/paciente_7_1711234567.jpg"
+}
+```
+
+---
+
+## Get patient appointment history
+
+```
+GET /api/pacientes/{id}/citas
+```
+
+Returns all appointments for a patient, ordered most recent first. Each record includes the related `servicio` and `doctor` data.
+
+### Path parameters
+
+<ParamField path="id" type="integer" required>
+  The `id_paciente` of the patient.
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  `true` on a successful response.
+</ResponseField>
+
+<ResponseField name="data" type="array">
+  Array of appointment (`citas`) records ordered by `fecha_hora_inicio` descending. Each record includes the full `Cita` model fields plus eager-loaded `servicio` and `doctor` relationships.
+  <Expandable title="item properties">
+    <ResponseField name="id_cita" type="integer">
+      Appointment primary key.
+    </ResponseField>
+    <ResponseField name="id_clinica" type="integer">
+      Clinic the appointment belongs to.
+    </ResponseField>
+    <ResponseField name="id_paciente" type="integer">
+      Patient primary key.
+    </ResponseField>
+    <ResponseField name="id_doctor" type="integer | null">
+      Doctor assigned to the appointment.
+    </ResponseField>
+    <ResponseField name="id_servicio" type="integer | null">
+      Service from the clinic's catalogue.
+    </ResponseField>
+    <ResponseField name="fecha_hora_inicio" type="string">
+      Appointment start datetime in ISO 8601 format.
+    </ResponseField>
+    <ResponseField name="fecha_hora_fin" type="string">
+      Appointment end datetime in ISO 8601 format.
+    </ResponseField>
+    <ResponseField name="estado_cita" type="string">
+      Status: `pendiente`, `confirmada`, `cancelada`, or `completada`.
+    </ResponseField>
+    <ResponseField name="costo_estimado" type="string">
+      Decimal cost string, e.g. `"800.00"`.
+    </ResponseField>
+    <ResponseField name="motivo" type="string | null">
+      Reason or follow-up notes for the visit.
+    </ResponseField>
+    <ResponseField name="servicio" type="object | null">
+      Eager-loaded service record from `catalogo_servicios`.
+    </ResponseField>
+    <ResponseField name="doctor" type="object | null">
+      Eager-loaded doctor record.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example
+
+```bash
+curl https://your-app-url/api/pacientes/7/citas \
+  -H "Accept: application/json" \
+  --cookie "laravel_session=<session>"
+```
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id_cita": 42,
+      "id_clinica": 1,
+      "id_paciente": 7,
+      "id_doctor": 3,
+      "id_servicio": 5,
+      "fecha_hora_inicio": "2026-03-20T09:00:00.000000Z",
+      "fecha_hora_fin": "2026-03-20T09:30:00.000000Z",
+      "estado_cita": "pendiente",
+      "costo_estimado": "800.00",
+      "motivo": "Limpieza dental",
+      "servicio": { "id_servicio": 5, "nombre_servicio": "Limpieza dental" },
+      "doctor": { "id_doctor": 3 }
+    }
+  ]
+}
+```
+
+---
+
+## Get clinical evolution entries
+
+```
+GET /api/pacientes/{id}/evoluciones
+```
+
+Returns the 10 most recent clinical evolution (SOAP-style progress notes) entries for a patient. Each entry is augmented with an `imagenes` array containing any attached image file.
+
+### Path parameters
+
+<ParamField path="id" type="integer" required>
+  The `id_paciente` of the patient.
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  `true` on a successful response.
+</ResponseField>
+
+<ResponseField name="data" type="array">
+  Up to 10 evolution records ordered by `fecha_evolucion` descending.
+  <Expandable title="item properties">
+    <ResponseField name="id_evolucion" type="integer">
+      Evolution entry primary key.
+    </ResponseField>
+    <ResponseField name="id_paciente" type="integer">
+      Patient this entry belongs to.
+    </ResponseField>
+    <ResponseField name="fecha_evolucion" type="string">
+      Date and time of the entry in ISO 8601 format.
+    </ResponseField>
+    <ResponseField name="descripcion_avance" type="string">
+      Progress description (up to 100 characters).
+    </ResponseField>
+    <ResponseField name="plan_tratamiento" type="string | null">
+      Treatment plan notes.
+    </ResponseField>
+    <ResponseField name="estado_paciente" type="string | null">
+      Patient state at time of entry.
+    </ResponseField>
+    <ResponseField name="imagenes" type="array">
+      Attached images. Each item has a `ruta_imagen` string with the storage-relative path.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example
+
+```bash
+curl https://your-app-url/api/pacientes/7/evoluciones \
+  -H "Accept: application/json" \
+  --cookie "laravel_session=<session>"
+```
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id_evolucion": 14,
+      "id_paciente": 7,
+      "fecha_evolucion": "2026-03-18T10:00:00.000000Z",
+      "descripcion_avance": "Paciente sin molestias, sigue el plan.",
+      "plan_tratamiento": "Continuar con blanqueamiento.",
+      "estado_paciente": null,
+      "imagenes": [
+        { "ruta_imagen": "evoluciones/1711234567_progress.jpg" }
+      ]
+    }
+  ]
+}
+```
+
+---
+
+## Create clinical evolution entry
+
+```
+POST /api/pacientes/{id}/evoluciones
+```
+
+Creates a new clinical evolution entry for a patient. An image may optionally be attached and is stored under `storage/evoluciones/`.
+
+### Path parameters
+
+<ParamField path="id" type="integer" required>
+  The `id_paciente` of the patient.
+</ParamField>
+
+### Body parameters
+
+Send as `multipart/form-data` when attaching an image, or `application/x-www-form-urlencoded` for text-only entries.
+
+<ParamField body="descripcion_avance" type="string" required>
+  Progress description. Maximum 500 characters.
+</ParamField>
+
+<ParamField body="plan_tratamiento" type="string">
+  Treatment plan notes. No length limit.
+</ParamField>
+
+<ParamField body="imagen" type="file">
+  Optional image file. Accepted formats: `jpeg`, `png`, `jpg`, `webp`. Maximum size: 5 MB.
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  `true` when the entry was created.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  `"Evolución guardada correctamente."`
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  The newly created `evolucion_tratamiento` record.
+</ResponseField>
+
+**Validation error (422):**
+
+<ResponseField name="success" type="boolean">
+  `false`
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  The first validation error message.
+</ResponseField>
+
+### Example
+
+```bash
+curl -X POST https://your-app-url/api/pacientes/7/evoluciones \
+  -H "Accept: application/json" \
+  -H "X-CSRF-TOKEN: <token>" \
+  --cookie "laravel_session=<session>" \
+  -F "descripcion_avance=Paciente sin molestias, se aplica sellador." \
+  -F "plan_tratamiento=Revisión en 4 semanas."
+```
+
+```json
+{
+  "success": true,
+  "message": "Evolución guardada correctamente.",
+  "data": {
+    "id_evolucion": 15,
+    "id_paciente": 7,
+    "fecha_evolucion": "2026-03-19T14:32:00.000000Z",
+    "descripcion_avance": "Paciente sin molestias, se aplica sellador.",
+    "plan_tratamiento": "Revisión en 4 semanas."
+  }
+}
+```

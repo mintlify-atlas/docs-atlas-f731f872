@@ -1,0 +1,163 @@
+---
+title: "Stripe webhook"
+description: "Webhook endpoint for Stripe subscription event processing"
+---
+
+## POST /stripe/webhook
+
+Receives and processes subscription lifecycle events sent by Stripe. This is the only route in the application that is **public** (no session required) and **exempt from CSRF protection**.
+
+<Info>
+  The webhook URL is registered in `routes/web.php` and excluded from the CSRF middleware in `bootstrap/app.php`. Do not add authentication middleware to this route.
+</Info>
+
+### Signature validation
+
+Stripe signs every webhook delivery using HMAC-SHA256. The application validates each request by:
+
+1. Extracting the timestamp (`t`) and signature (`v1`) from the `Stripe-Signature` header.
+2. Computing `HMAC-SHA256(timestamp + "." + raw_body, STRIPE_WEBHOOK_SECRET)`.
+3. Comparing the result against the `v1` value using a constant-time comparison.
+
+If the signature is missing or does not match, the endpoint returns `400` with `{ "error": "Invalid signature" }`.
+
+<Warning>
+  Always use the **raw request body** for signature verification. Do not parse the JSON before verifying — middleware that reads and re-encodes the body will break the signature.
+</Warning>
+
+### Required header
+
+<ParamField header="Stripe-Signature" type="string" required>
+  HMAC-SHA256 signature header set automatically by Stripe. Format: `t=<timestamp>,v1=<signature>`.
+</ParamField>
+
+### Supported events
+
+| Event | Action |
+|-------|--------|
+| `checkout.session.completed` | Activates the subscription; stores `stripe_customer_id` and `stripe_subscription_id` |
+| `customer.subscription.created` | Syncs the new subscription state to the local `suscripciones_clinica` record |
+| `customer.subscription.updated` | Updates plan, billing period dates, and `auto_renovar` flag |
+| `customer.subscription.deleted` | Marks the subscription as canceled (`estado = 'deleted'`) |
+
+### Event: `checkout.session.completed`
+
+Triggered after a successful Stripe Checkout payment. The handler reads `id_clinica` and `id_plan` from the session metadata (set during checkout) and upserts the `suscripciones_clinica` record.
+
+**Metadata required in the Checkout Session:**
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `id_clinica` | string | Primary key of the clinic that initiated the checkout |
+| `id_plan` | string | Primary key of the plan being purchased |
+
+If either metadata key is missing or zero, the event is silently ignored.
+
+Fields updated:
+- `stripe_customer_id` — Stripe Customer ID
+- `stripe_subscription_id` — Stripe Subscription ID
+- `estado` — set to `active` when `payment_status = paid`, otherwise `incomplete`
+
+### Event: `customer.subscription.created` / `customer.subscription.updated`
+
+Both events are handled by the same internal method. The handler looks up the local subscription record by `stripe_subscription_id`, falling back to `stripe_customer_id` if not found.
+
+Fields updated:
+- `id_plan` — matched by `stripe_price_id` against `planes_saas`
+- `monto_periodo` — updated to the plan's `precio_mensual`
+- `stripe_customer_id`
+- `stripe_subscription_id`
+- `estado` — raw Stripe status string (e.g. `active`, `past_due`, `canceled`)
+- `periodo_inicio` — converted from Unix timestamp
+- `periodo_fin` — converted from Unix timestamp
+- `auto_renovar` — `true` unless `cancel_at_period_end` is set on the Stripe subscription
+
+### Event: `customer.subscription.deleted`
+
+Handled by the same subscription sync method. When Stripe sends `customer.subscription.deleted`, the `status` field on the subscription object is `canceled`, so `estado` is set to `"canceled"` on the local record.
+
+### Response
+
+**200 — success:**
+
+```json
+{ "received": true }
+```
+
+**400 — invalid signature or malformed payload:**
+
+```json
+{ "error": "Invalid signature" }
+```
+
+### Example delivery (from Stripe)
+
+```bash
+curl -X POST https://your-app-url/stripe/webhook \
+  -H "Content-Type: application/json" \
+  -H "Stripe-Signature: t=1711234567,v1=abc123..." \
+  --data-raw '{
+    "type": "checkout.session.completed",
+    "data": {
+      "object": {
+        "id": "cs_live_xxx",
+        "customer": "cus_xxx",
+        "subscription": "sub_xxx",
+        "payment_status": "paid",
+        "metadata": {
+          "id_clinica": "1",
+          "id_plan": "2"
+        }
+      }
+    }
+  }'
+```
+
+```json
+{ "received": true }
+```
+
+## Configuring the webhook in Stripe
+
+<Steps>
+  <Step title="Open the Stripe Dashboard">
+    Navigate to **Developers → Webhooks** in the [Stripe Dashboard](https://dashboard.stripe.com/webhooks).
+  </Step>
+  <Step title="Add an endpoint">
+    Click **Add endpoint** and enter your webhook URL:
+
+    ```
+    https://your-app-url/stripe/webhook
+    ```
+  </Step>
+  <Step title="Select events to listen for">
+    Enable the following events:
+
+    - `checkout.session.completed`
+    - `customer.subscription.created`
+    - `customer.subscription.updated`
+    - `customer.subscription.deleted`
+  </Step>
+  <Step title="Copy the signing secret">
+    After saving, click the endpoint and reveal the **Signing secret**. Copy the `whsec_...` value.
+  </Step>
+  <Step title="Set the environment variable">
+    Add the signing secret to your `.env` file:
+
+    ```bash
+    STRIPE_WEBHOOK_SECRET=whsec_...
+    ```
+
+    Then restart the application so the new value is loaded.
+  </Step>
+</Steps>
+
+<Info>
+  For local development, use the [Stripe CLI](https://stripe.com/docs/stripe-cli) to forward events:
+
+  ```bash
+  stripe listen --forward-to http://localhost:8000/stripe/webhook
+  ```
+
+  The CLI prints a temporary `whsec_...` secret — set it as `STRIPE_WEBHOOK_SECRET` in your local `.env`.
+</Info>

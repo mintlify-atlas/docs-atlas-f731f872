@@ -1,0 +1,163 @@
+---
+title: "Deployment"
+description: "Deploy DentalConnect to production"
+---
+
+DentalConnect ships with a `Procfile` and `railpack.toml` that make it compatible with Railway, Render, and any platform that supports Procfile-based deployments.
+
+## Environment variables
+
+Set the following environment variables in your hosting platform's dashboard before deploying. All variables are required unless marked optional.
+
+| Variable | Required | Description |
+|---|---|---|
+| `APP_KEY` | Yes | Laravel encryption key — generate with `php artisan key:generate` |
+| `APP_URL` | Yes | Full public URL of your app, e.g. `https://app.yourclinicdomain.com` |
+| `APP_ENV` | Yes | Set to `production` |
+| `APP_DEBUG` | Yes | Set to `false` in production |
+| `DB_HOST` | Yes | MySQL database host |
+| `DB_PORT` | Yes | MySQL port (default: `3306`) |
+| `DB_DATABASE` | Yes | Database name |
+| `DB_USERNAME` | Yes | Database username |
+| `DB_PASSWORD` | Yes | Database password |
+| `STRIPE_KEY` | Yes | Stripe publishable key (`pk_live_...`) |
+| `STRIPE_SECRET` | Yes | Stripe secret key (`sk_live_...`) |
+| `STRIPE_WEBHOOK_SECRET` | Yes | Webhook signing secret (`whsec_...`) |
+| `SESSION_DRIVER` | Recommended | Set to `database` for multi-instance deployments |
+| `CACHE_STORE` | Recommended | Set to `database` or `redis` |
+| `QUEUE_CONNECTION` | Recommended | Set to `database` for persistent queue processing |
+
+<Warning>
+  Never expose `STRIPE_SECRET` in your frontend code, public repositories, or any client-side context. It must only be set as a server-side environment variable. All Stripe secret key usage happens server-side through Laravel's backend.
+</Warning>
+
+## Deployment procedure
+
+<Steps>
+  <Step title="Provision a MySQL database">
+    Create a MySQL database on your hosting provider. Note the host, port, name, username, and password — you will need these for the environment variables above.
+  </Step>
+
+  <Step title="Set environment variables">
+    Add all required environment variables to your hosting platform. Pay close attention to:
+
+    - `APP_KEY` — must be a valid base64-encoded Laravel key
+    - `APP_URL` — must match the public URL exactly, including `https://`
+    - `APP_DEBUG=false` and `APP_ENV=production`
+    - All three Stripe variables
+
+    <Tip>
+      On Railway, set variables under **Variables** in your service settings. On Render, use the **Environment** tab of your web service.
+    </Tip>
+  </Step>
+
+  <Step title="Build frontend assets">
+    Run the production asset build before or as part of your deployment pipeline.
+
+    ```bash
+    npm run build
+    ```
+
+    This compiles and fingerprints all CSS and JavaScript files into the `public/build/` directory. The build output must be present before serving requests.
+  </Step>
+
+  <Step title="Run database migrations">
+    Apply all migrations with the `--force` flag, which is required to run migrations in production without an interactive prompt.
+
+    ```bash
+    php artisan migrate --force
+    ```
+
+    This will create all application tables and seed the three default SaaS plans (`basic`, `premium`, `ultra`) into the `saas_planes` table.
+  </Step>
+
+  <Step title="Start the web process">
+    The `Procfile` defines the web process DentalConnect uses:
+
+    ```
+    web: php artisan config:clear && php artisan serve --host=0.0.0.0 --port=$PORT
+    ```
+
+    Platforms like Railway and Render read this file automatically and start the process on deployment. The `$PORT` variable is injected by the platform.
+
+    If your platform uses `railpack.toml` instead, the configured start command is:
+
+    ```toml
+    [start]
+    cmd = "php artisan serve --host=0.0.0.0 --port=$PORT"
+    ```
+
+    <Note>
+      `php artisan config:clear` runs before the server starts to ensure no stale cached configuration is used in production.
+    </Note>
+  </Step>
+
+  <Step title="Configure the Stripe webhook endpoint">
+    In your [Stripe Dashboard](https://dashboard.stripe.com/webhooks), create a new webhook endpoint pointing to:
+
+    ```
+    POST https://your-domain.com/stripe/webhook
+    ```
+
+    Select at minimum the following events:
+
+    - `checkout.session.completed`
+    - `customer.subscription.updated`
+    - `customer.subscription.deleted`
+    - `invoice.payment_succeeded`
+    - `invoice.payment_failed`
+
+    After creating the endpoint, copy the **Signing secret** (`whsec_...`) and set it as the `STRIPE_WEBHOOK_SECRET` environment variable.
+
+    DentalConnect validates the webhook signature on every request — if the secret is missing or incorrect, all webhook calls will be rejected.
+  </Step>
+
+  <Step title="Configure Stripe Price IDs">
+    After migrating, the `saas_planes` table contains three rows with `null` values for `stripe_price_id`. You must populate these with the actual Price IDs from your Stripe product catalog:
+
+    ```sql
+    UPDATE saas_planes SET stripe_price_id = 'price_xxx' WHERE slug = 'basic';
+    UPDATE saas_planes SET stripe_price_id = 'price_yyy' WHERE slug = 'premium';
+    UPDATE saas_planes SET stripe_price_id = 'price_zzz' WHERE slug = 'ultra';
+    ```
+
+    Subscription checkout will not work until these values are set.
+  </Step>
+</Steps>
+
+## Railway deployment
+
+Railway reads `railpack.toml` automatically. To deploy:
+
+1. Create a new Railway project and connect your GitHub repository.
+2. Add a MySQL plugin or connect an external MySQL database.
+3. Set all required environment variables in the **Variables** tab.
+4. Add a deploy command in Railway's settings to run migrations: `php artisan migrate --force`.
+5. Railway will start the app using the command in `railpack.toml`.
+
+## Render deployment
+
+Render reads `Procfile` automatically for web services. To deploy:
+
+1. Create a new **Web Service** and connect your repository.
+2. Set **Build Command** to `composer install --no-dev --optimize-autoloader && npm install && npm run build`.
+3. Render will use the `Procfile` `web` process as the start command.
+4. Add all environment variables in the **Environment** tab.
+5. Add a **Pre-Deploy Command** to run: `php artisan migrate --force`.
+
+## Post-deployment checklist
+
+<CardGroup cols={2}>
+  <Card title="Verify Stripe webhook" icon="webhook">
+    Send a test event from the Stripe Dashboard to confirm `POST /stripe/webhook` returns a `200` response.
+  </Card>
+  <Card title="Set Stripe Price IDs" icon="tag">
+    Update `stripe_price_id` in `saas_planes` for all three plans before going live.
+  </Card>
+  <Card title="Disable debug mode" icon="bug-slash">
+    Confirm `APP_DEBUG=false` — never expose stack traces in production.
+  </Card>
+  <Card title="Create an admin user" icon="user-shield">
+    Register the first user and assign the `administrador` role directly in the database to access `/admin/panel`.
+  </Card>
+</CardGroup>

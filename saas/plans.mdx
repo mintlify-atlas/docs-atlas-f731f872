@@ -1,0 +1,145 @@
+---
+title: "Subscription plans"
+description: "Choose the right plan for your dental clinic"
+---
+
+DentalConnect offers three subscription tiers. Each plan is stored in the `saas_planes` table and linked to a Stripe Price ID that drives checkout.
+
+## Available plans
+
+<CardGroup cols={3}>
+  <Card title="Basic" icon="circle">
+    **$499 MXN / month**
+
+    - Up to 2 doctors
+    - Up to 500 patients
+    - Agenda and patient records
+    - Operational dashboard
+    - Email support
+  </Card>
+  <Card title="Premium" icon="star">
+    **$999 MXN / month**
+
+    - Up to 8 doctors
+    - Up to 5,000 patients
+    - Everything in Basic
+    - Advertising and lead capture module
+    - Advanced analytics
+  </Card>
+  <Card title="Ultra" icon="zap">
+    **$1,999 MXN / month**
+
+    - Unlimited doctors
+    - Unlimited patients
+    - Everything in Premium
+    - Multi-branch support
+    - Priority support
+  </Card>
+</CardGroup>
+
+## Plan data model
+
+Plans are seeded into the `saas_planes` table by the migration `2026_03_13_000001_create_saas_subscription_tables.php`. The `PlanSaas` Eloquent model (`app/Models/PlanSaas.php`) maps to this table.
+
+| Column | Type | Description |
+|---|---|---|
+| `id_plan` | bigint | Primary key |
+| `slug` | varchar(30) | Unique identifier: `basic`, `premium`, `ultra` |
+| `nombre` | varchar(50) | Display name |
+| `nivel` | tinyint | Tier level: `1`, `2`, `3` |
+| `precio_mensual` | decimal(10,2) | Monthly price in MXN |
+| `stripe_price_id` | varchar(120) | Stripe Price ID for Checkout |
+| `max_doctores` | int | Maximum doctor users (`null` = unlimited) |
+| `max_pacientes` | int | Maximum patient records (`null` = unlimited) |
+| `features` | json | Array of feature strings shown on the landing page |
+| `activo` | boolean | Whether the plan is offered in checkout |
+
+<Note>
+  Each plan must have a `stripe_price_id` set in the `saas_planes` table before clinics can subscribe. Checkout will fail with an error redirect if this value is `null`.
+</Note>
+
+## Plan gating
+
+Certain modules are restricted to clinics on Premium or higher. The `plan:premium` middleware checks the clinic's active subscription level using `Clinica::hasPlanAtLeast()`.
+
+The advertising module is the primary gated feature:
+
+```php
+// routes/web.php
+Route::resource('publicidad', PublicidadController::class)
+    ->only(['index', 'store', 'destroy'])
+    ->middleware('plan:premium');
+```
+
+`hasPlanAtLeast()` compares the `nivel` column of the clinic's active plan against the required plan's `nivel`. A clinic on Ultra (nivel 3) passes a `plan:premium` (nivel 2) check.
+
+```php
+// app/Models/Clinica.php
+public function hasPlanAtLeast(string $requiredSlug): bool
+{
+    $requiredPlan = PlanSaas::where('slug', $requiredSlug)->first();
+    $currentSubscription = $this->suscripcionActiva()->with('plan')->first();
+
+    if (!$requiredPlan || !$currentSubscription || !$currentSubscription->plan) {
+        return false;
+    }
+
+    return (int) $currentSubscription->plan->nivel >= (int) $requiredPlan->nivel;
+}
+```
+
+## Subscription statuses
+
+The `estado` column in `suscripciones_clinica` reflects the Stripe subscription lifecycle:
+
+| Status | Meaning |
+|---|---|
+| `pending` | Checkout session created, payment not yet confirmed |
+| `active` | Subscription is active and paid |
+| `trialing` | Subscription is in a free trial period |
+| `incomplete` | Payment attempted but not completed |
+| `canceled` | Subscription was canceled by the clinic or via Stripe |
+
+Only `active` and `trialing` subscriptions are considered valid for plan gating. The `suscripcionActiva()` scope on the `Clinica` model filters by these two statuses:
+
+```php
+// app/Models/Clinica.php
+public function suscripcionActiva()
+{
+    return $this->hasOne(SuscripcionClinica::class, 'id_clinica', 'id_clinica')
+        ->whereIn('estado', ['active', 'trialing'])
+        ->latest('periodo_fin');
+}
+```
+
+## Viewing your subscription
+
+Authenticated clinic users can view their current subscription at:
+
+```
+GET /suscripciones
+```
+
+This route renders the latest subscription record for the authenticated user's clinic, including the associated plan details.
+
+## Upgrade and downgrade flow
+
+To change plans, the clinic initiates a new checkout session for the target plan slug:
+
+```
+POST /suscripciones/checkout/{planSlug}
+```
+
+When Stripe confirms the new subscription, the `customer.subscription.updated` webhook event updates the `suscripciones_clinica` record with the new `id_plan` and `monto_periodo`. The plan is resolved by matching `stripe_price_id` from the webhook payload against the `saas_planes` table.
+
+<AccordionGroup>
+  <Accordion title="What happens to the previous subscription record?">
+    The webhook handler (`handleSubscriptionEvent`) finds the existing `SuscripcionClinica` record by `stripe_subscription_id` or `stripe_customer_id` and updates it in place. A new record is not created for upgrades or downgrades — the existing row is mutated with the new `id_plan`, `monto_periodo`, `estado`, `periodo_inicio`, and `periodo_fin`.
+  </Accordion>
+  <Accordion title="Can a clinic have multiple subscription records?">
+    Yes. Each checkout session creates or updates a record via `updateOrCreate` keyed on `stripe_checkout_session_id`. A clinic may accumulate historical rows in `suscripciones_clinica`, but `suscripcionActiva()` always returns the single most recent `active` or `trialing` record ordered by `periodo_fin`.
+  </Accordion>
+  <Accordion title="What if a plan has no Stripe Price ID?">
+    The `checkout` action checks `$plan->stripe_price_id` before calling the Stripe API. If it is `null`, the user is redirected to the landing page with an error message. No checkout session is created.
+  </Accordion>
+</AccordionGroup>

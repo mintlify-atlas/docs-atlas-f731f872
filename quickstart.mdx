@@ -1,80 +1,162 @@
 ---
 title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+description: "Get DentalConnect running locally in under 10 minutes"
 ---
 
-## Get started in three steps
+## Prerequisites
 
-Get your documentation site running locally and make your first customization.
+- PHP 8.2+
+- Composer
+- Node.js 18+ and npm
+- MySQL database
+- A [Stripe](https://stripe.com) account (for subscription features)
 
-### Step 1: Set up your local environment
+## Setup
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+<Steps>
+  <Step title="Clone the repository">
+    Clone the DentalConnect repository and navigate into the project directory.
 
-### Step 2: Deploy your changes
+    ```bash
+    git clone https://github.com/a3524110303-cpu/Proyecto_Sakari_DentalConnect.git
+    cd Proyecto_Sakari_DentalConnect
+    ```
+  </Step>
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+  <Step title="Install PHP dependencies">
+    Install all PHP packages via Composer. This also runs `package:discover` automatically.
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    ```bash
+    composer install
+    ```
+  </Step>
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+  <Step title="Install JavaScript dependencies">
+    Install the Node.js packages used by Vite for frontend asset compilation.
 
-### Step 3: Go live
+    ```bash
+    npm install
+    ```
+  </Step>
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+  <Step title="Configure your environment">
+    Copy the example environment file and open it in your editor.
+
+    ```bash
+    cp .env.example .env
+    ```
+
+    Update the following key variables:
+
+    | Variable | Description |
+    |---|---|
+    | `APP_URL` | Your local URL, e.g. `http://localhost:8000` |
+    | `DB_HOST` | MySQL host, e.g. `127.0.0.1` |
+    | `DB_DATABASE` | Name of your local MySQL database |
+    | `DB_USERNAME` | MySQL username |
+    | `DB_PASSWORD` | MySQL password |
+    | `STRIPE_KEY` | Your Stripe publishable key |
+    | `STRIPE_SECRET` | Your Stripe secret key |
+    | `STRIPE_WEBHOOK_SECRET` | Webhook signing secret from your Stripe dashboard |
+
+    <Note>
+      Stripe keys are only required if you want to test subscription checkout locally. The rest of the app — patients, appointments, odontogram — works without them.
+    </Note>
+  </Step>
+
+  <Step title="Generate the application key">
+    Generate a unique `APP_KEY` for encryption and session security.
+
+    ```bash
+    php artisan key:generate
+    ```
+  </Step>
+
+  <Step title="Run database migrations">
+    This creates all tables — clinics, users, patients, appointments, odontogram, SaaS plans, and more — and seeds the three default subscription plans (Basic, Premium, Ultra).
+
+    ```bash
+    php artisan migrate
+    ```
+
+    <Note>
+      The migration also seeds the `saas_planes` table with the three default plans: **Basico** ($499/mo), **Premium** ($999/mo), and **Ultra** ($1,999/mo). You will need to update `stripe_price_id` in that table with your actual Stripe Price IDs before accepting real payments.
+    </Note>
+  </Step>
+
+  <Step title="Build frontend assets">
+    Compile and bundle frontend assets for the development environment.
+
+    ```bash
+    npm run build
+    ```
+  </Step>
+
+  <Step title="Start the development server">
+    The `dev` script in `composer.json` starts all required processes concurrently: the Laravel app server, queue worker, Pail log viewer, and Vite dev server.
+
+    ```bash
+    composer run dev
+    ```
+
+    This runs the following command:
+
+    ```bash
+    npx concurrently -c "#93c5fd,#c4b5fd,#fb7185,#fdba74" "php artisan serve" "php artisan queue:listen --tries=1 --timeout=0" "php artisan pail --timeout=0" "npm run dev" --names=server,queue,logs,vite --kill-others
+    ```
+
+    Alternatively, you can start the processes individually in separate terminals:
+
+    <CodeGroup>
+      ```bash App server
+      php artisan serve
+      ```
+
+      ```bash Queue worker
+      php artisan queue:listen --tries=1 --timeout=0
+      ```
+
+      ```bash Vite dev server
+      npm run dev
+      ```
+    </CodeGroup>
+  </Step>
+</Steps>
+
+## Access the app
+
+Open [http://localhost:8000](http://localhost:8000) in your browser. You will see the public landing page with the three subscription plans.
+
+| URL | Description |
+|---|---|
+| `http://localhost:8000` | Public landing page with plan pricing |
+| `http://localhost:8000/register` | Create a new clinic account |
+| `http://localhost:8000/login` | Sign in to an existing account |
+| `http://localhost:8000/dashboard` | Clinic dashboard (requires login) |
+| `http://localhost:8000/admin/panel` | Global admin panel (requires `administrador` role) |
+
+## Roles and credentials
+
+DentalConnect uses four roles, all defined on the `usuarios_sistema` table:
+
+| Role | Access level |
+|---|---|
+| `administrador` | Full access to clinic settings, staff management, and the global SaaS admin panel at `/admin/panel` |
+| `doctor` | Patient records, appointments, treatments, odontogram |
+| `recepcionista` | Appointment management and patient list view |
+| `paciente` | Patient-facing access |
+
+<Note>
+  There are no seeded default credentials. Register a new account at `/register` — the first user you create will be associated with a new clinic record. Assign the `administrador` role directly in the database to access the admin panel.
+</Note>
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Deployment" icon="server" href="/deployment">
+    Deploy DentalConnect to a production environment.
+  </Card>
+  <Card title="SaaS Plans" icon="credit-card" href="/saas/plans">
+    Configure Stripe Price IDs and subscription tiers.
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

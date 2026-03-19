@@ -1,0 +1,225 @@
+---
+title: "Odontogram API"
+description: "AJAX endpoints for dental chart management"
+---
+
+<Note>
+  All endpoints require an active session. Include `X-CSRF-TOKEN` in the headers of `POST` and `DELETE` requests.
+</Note>
+
+The odontogram stores one record per tooth surface condition. Each record maps a tooth number (`numero_diente`) and an optional surface (`cara_diente`) to a condition (`estado_diente`) and free-text notes. The table has no `created_at`/`updated_at` timestamps; the registration date is stored in `fecha_registro`.
+
+## Get odontogram records
+
+```
+GET /api/pacientes/{id}/odontograma
+```
+
+Returns all odontogram records for a patient, ordered by `id_odontograma` descending (most recently created first).
+
+### Path parameters
+
+<ParamField path="id" type="integer" required>
+  The `id_paciente` of the patient.
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  `true` on a successful response.
+</ResponseField>
+
+<ResponseField name="data" type="array">
+  Array of odontogram records.
+  <Expandable title="item properties">
+    <ResponseField name="id_odontograma" type="integer">
+      Record primary key.
+    </ResponseField>
+    <ResponseField name="id_paciente" type="integer">
+      Patient this record belongs to.
+    </ResponseField>
+    <ResponseField name="id_cita" type="integer | null">
+      Appointment during which the condition was recorded. Nullable.
+    </ResponseField>
+    <ResponseField name="numero_diente" type="string">
+      Tooth identifier using the FDI notation, e.g. `"11"`, `"36"`, `"85"`.
+    </ResponseField>
+    <ResponseField name="cara_diente" type="string | null">
+      Tooth surface, e.g. `"vestibular"`, `"mesial"`, `"oclusal"`, `"distal"`, `"palatino"`. Nullable.
+    </ResponseField>
+    <ResponseField name="estado_diente" type="string | null">
+      Condition label, e.g. `"caries"`, `"hallazgo"`, `"tratamiento"`. Nullable.
+    </ResponseField>
+    <ResponseField name="observaciones" type="string | null">
+      Free-text clinical notes. Up to 1000 characters.
+    </ResponseField>
+    <ResponseField name="fecha_registro" type="string">
+      ISO 8601 datetime when the record was created.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example
+
+```bash
+curl https://your-app-url/api/pacientes/7/odontograma \
+  -H "Accept: application/json" \
+  --cookie "laravel_session=<session>"
+```
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id_odontograma": 23,
+      "id_paciente": 7,
+      "id_cita": 42,
+      "numero_diente": "36",
+      "cara_diente": "oclusal",
+      "estado_diente": "caries",
+      "observaciones": "Caries incipiente en cara oclusal.",
+      "fecha_registro": "2026-03-15T10:00:00.000000Z"
+    }
+  ]
+}
+```
+
+---
+
+## Create odontogram record
+
+```
+POST /api/pacientes/{id}/odontograma
+```
+
+Creates a new odontogram entry when a doctor marks a tooth condition. `fecha_registro` is set automatically to the current timestamp.
+
+### Path parameters
+
+<ParamField path="id" type="integer" required>
+  The `id_paciente` of the patient. This value is merged into the request body automatically — you do not need to include it in the request body.
+</ParamField>
+
+### Body parameters
+
+<ParamField body="numero_diente" type="string" required>
+  Tooth identifier. Max 5 characters. Use FDI notation, e.g. `"11"` or `"85"`.
+</ParamField>
+
+<ParamField body="id_cita" type="integer">
+  Optional appointment to link this record to. Must exist in the `citas` table.
+</ParamField>
+
+<ParamField body="cara_diente" type="string">
+  Tooth surface. Max 50 characters, e.g. `"vestibular"`, `"mesial"`, `"oclusal"`.
+</ParamField>
+
+<ParamField body="estado_diente" type="string">
+  Condition label. Max 50 characters, e.g. `"caries"`, `"hallazgo"`, `"tratamiento"`.
+</ParamField>
+
+<ParamField body="observaciones" type="string">
+  Free-text notes. Max 1000 characters.
+</ParamField>
+
+### Response
+
+Returns `201 Created` on success.
+
+<ResponseField name="success" type="boolean">
+  `true` when the record was created.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  `"Registro dental guardado correctamente."`
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  The newly created odontogram record with all fields populated.
+</ResponseField>
+
+### Example
+
+```bash
+curl -X POST https://your-app-url/api/pacientes/7/odontograma \
+  -H "Accept: application/json" \
+  -H "X-CSRF-TOKEN: <token>" \
+  --cookie "laravel_session=<session>" \
+  -d "numero_diente=36&cara_diente=oclusal&estado_diente=caries&id_cita=42"
+```
+
+```json
+{
+  "success": true,
+  "message": "Registro dental guardado correctamente.",
+  "data": {
+    "id_odontograma": 24,
+    "id_paciente": 7,
+    "id_cita": 42,
+    "numero_diente": "36",
+    "cara_diente": "oclusal",
+    "estado_diente": "caries",
+    "observaciones": null,
+    "fecha_registro": "2026-03-19T14:50:00.000000Z"
+  }
+}
+```
+
+---
+
+## Delete odontogram record
+
+```
+DELETE /api/odontograma/{id_odontograma}
+```
+
+Permanently deletes a single odontogram entry. This action is irreversible.
+
+<Warning>
+  Deletion is permanent. There is no soft-delete on the `odontograma` table.
+</Warning>
+
+### Path parameters
+
+<ParamField path="id_odontograma" type="integer" required>
+  Primary key of the odontogram record to delete.
+</ParamField>
+
+### Response
+
+**200 — success:**
+
+<ResponseField name="success" type="boolean">
+  `true` when the record was deleted.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  `"Registro eliminado correctamente."`
+</ResponseField>
+
+**404 — not found:**
+
+<ResponseField name="success" type="boolean">
+  `false`
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  `"Registro no encontrado."`
+</ResponseField>
+
+### Example
+
+```bash
+curl -X DELETE https://your-app-url/api/odontograma/23 \
+  -H "Accept: application/json" \
+  -H "X-CSRF-TOKEN: <token>" \
+  --cookie "laravel_session=<session>"
+```
+
+```json
+{
+  "success": true,
+  "message": "Registro eliminado correctamente."
+}
+```

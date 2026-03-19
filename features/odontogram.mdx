@@ -1,0 +1,98 @@
+---
+title: "Odontogram"
+description: "Interactive dental chart tracking conditions per tooth"
+---
+
+The odontogram is a per-tooth clinical record. Doctors mark findings, treatments, and caries on individual tooth surfaces during or after an appointment. All interactions use AJAX — the page does not reload.
+
+## What is stored
+
+Each odontogram entry records the state of one tooth surface for one patient:
+
+| Column | Type | Description |
+|---|---|---|
+| `id_odontograma` | `bigint` | Primary key |
+| `id_paciente` | `bigint` | FK → `pacientes` |
+| `id_cita` | `bigint` | FK → `citas` (nullable — may be recorded outside a visit) |
+| `numero_diente` | `varchar(5)` | Tooth number, e.g. `11`, `22`, `48`, `85` |
+| `cara_diente` | `varchar(50)` | Surface, e.g. `vestibular`, `mesial`, `oclusal`, `distal`, `palatino` |
+| `estado_diente` | `varchar(50)` | Condition, e.g. `hallazgo`, `tratamiento`, `caries` |
+| `observaciones` | `text` | Free-text clinical notes (max 1000 characters) |
+| `fecha_registro` | `datetime` | Set automatically on creation |
+
+<Note>
+  The `odontograma` table has no `created_at` / `updated_at` timestamps. `fecha_registro` is set on `store` and is not updated on subsequent edits.
+</Note>
+
+## Viewing a patient's odontogram
+
+The odontogram is loaded inside the appointment detail modal. When the modal opens, the dashboard fetches:
+
+```http
+GET /api/pacientes/{id}/odontograma
+```
+
+This returns all entries for the patient ordered by `id_odontograma` descending — most recent first.
+
+You can also open the odontogram directly from a patient record without an appointment context.
+
+## Adding a tooth entry
+
+When a doctor clicks a tooth on the chart, the frontend sends:
+
+```http
+POST /api/pacientes/{id_paciente}/odontograma
+Content-Type: application/json
+
+{
+  "id_paciente": 42,
+  "id_cita": 17,
+  "numero_diente": "16",
+  "cara_diente": "oclusal",
+  "estado_diente": "caries",
+  "observaciones": "Caries moderada en cara oclusal"
+}
+```
+
+`id_cita` is optional. `numero_diente` is required. All other fields are nullable.
+
+On success the API returns HTTP 201 with the created record.
+
+## Updating a tooth entry
+
+To correct or add detail to an existing entry, send only the fields you want to change:
+
+```http
+PUT /api/odontograma/{id_odontograma}
+Content-Type: application/json
+
+{
+  "estado_diente": "tratamiento",
+  "observaciones": "Corona provisional colocada"
+}
+```
+
+Null values are ignored — only non-null fields are written. `numero_diente` and `id_paciente` cannot be changed after creation.
+
+## Deleting an entry
+
+```http
+DELETE /api/odontograma/{id_odontograma}
+```
+
+Returns HTTP 200 on success or HTTP 404 if the record does not exist. There is no soft delete — the row is permanently removed.
+
+<Warning>
+  Deleting an odontogram entry is irreversible. Use the `observaciones` field to note corrections instead of deleting records when possible.
+</Warning>
+
+## AJAX interaction summary
+
+All four odontogram operations are JSON endpoints — no page reload is required:
+
+| Action | Method | Endpoint |
+|---|---|---|
+| List all entries for a patient | `GET` | `/api/pacientes/{id}/odontograma` |
+| Add an entry | `POST` | `/api/pacientes/{id}/odontograma` |
+| Update an entry | `PUT` | `/api/odontograma/{id_odontograma}` |
+| Delete an entry | `DELETE` | `/api/odontograma/{id_odontograma}` |

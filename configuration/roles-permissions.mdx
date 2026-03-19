@@ -1,0 +1,166 @@
+---
+title: "Roles and permissions"
+description: "Understand user roles and access control in DentalConnect"
+---
+
+DentalConnect uses a role-based access control system. Every row in the `usuarios_sistema` table carries a `rol` enum column that determines what the user can access. Middleware enforces these restrictions at the route level.
+
+---
+
+## Roles overview
+
+The `rol` column is defined as an enum with four possible values:
+
+```sql
+ENUM('administrador', 'doctor', 'recepcionista', 'paciente')
+```
+
+<CardGroup cols={2}>
+  <Card title="administrador" icon="shield-halved">
+    Full access to all clinic features plus the global SaaS admin panel at `/admin/panel`. Only this role can access routes protected by `role:administrador`.
+  </Card>
+  <Card title="doctor" icon="user-doctor">
+    Clinical access — manages patients, appointments, the odontogram, treatments, and clinical evolutions. Created automatically on clinic registration.
+  </Card>
+  <Card title="recepcionista" icon="calendar-days">
+    Appointment management and patient list view. Accounts are created by the clinic owner through the settings page.
+  </Card>
+  <Card title="paciente" icon="user">
+    Patient-facing access. Uses token-based login via `PAC-XXXXXX` tokens stored in the `tokens` table rather than a password flow.
+  </Card>
+</CardGroup>
+
+---
+
+## Role-to-feature matrix
+
+| Feature / Route | `administrador` | `doctor` | `recepcionista` | `paciente` |
+|-----------------|:-:|:-:|:-:|:-:|
+| Dashboard `/dashboard` | Yes | Yes | Yes | — |
+| Patient records `/pacientes` | Yes | Yes | View only | — |
+| Appointments `/citas` | Yes | Yes | Yes | — |
+| Odontogram API | Yes | Yes | — | — |
+| Treatments `/tratamientos` | Yes | Yes | — | — |
+| Clinical evolutions API | Yes | Yes | — | — |
+| Cash register (ingresos_caja) | Yes | Yes | — | — |
+| Advertising `/publicidad` | Yes (Premium+) | Yes (Premium+) | — | — |
+| Settings `/configuracion` | Yes | Yes | — | — |
+| Subscriptions `/suscripciones` | Yes | Yes | — | — |
+| Admin panel `/admin/panel` | Yes | — | — | — |
+
+---
+
+## Middleware
+
+### `auth`
+
+All routes inside the main `Route::middleware(['auth'])` group require an active session. If the request has no session, the user is redirected to `/login`.
+
+On successful login, the `id_clinica` of the authenticated user is written into the session:
+
+```php
+$request->session()->put('id_clinica', Auth::user()->id_clinica);
+```
+
+This value is the foundation of multi-tenant data isolation — every query in the application scopes results to the current clinic.
+
+### `role:administrador`
+
+Implemented in `RoleMiddleware`. Accepts one or more role names as parameters and checks `Auth::user()->rol` against the list.
+
+```php
+// From routes/web.php
+Route::middleware('role:administrador')->group(function () {
+    Route::get('/admin/panel', [AdminPanelController::class, 'index'])->name('admin.panel');
+});
+```
+
+If the authenticated user's role is not in the allowed list, the middleware returns a 403 JSON response for API requests or redirects to `/dashboard` with an error flash for browser requests.
+
+<Info>
+The `role` middleware accepts multiple roles as comma-separated values, for example `role:administrador,doctor`. The check uses `in_array($user->rol, $roles)`.
+</Info>
+
+### `plan:premium`
+
+Implemented in `EnsurePlanLevel`. Checks whether the clinic linked to the current user has an active subscription at or above the required plan level using `Clinica::hasPlanAtLeast(string $requiredSlug)`.
+
+```php
+// From routes/web.php
+Route::resource('publicidad', PublicidadController::class)
+    ->only(['index', 'store', 'destroy'])
+    ->middleware('plan:premium');
+```
+
+Plan levels are compared numerically via the `nivel` column in `saas_planes`. A `premium` plan passes `plan:premium`, and an `ultra` plan passes `plan:premium` as well because its level is higher.
+
+If the clinic's active subscription does not meet the required level, the middleware redirects to the landing page with an error message prompting an upgrade.
+
+---
+
+## Patient token login
+
+Patients do not log in with a password. Instead, access tokens in the format `PAC-XXXXXX` are stored in the `tokens` table.
+
+### Token table schema
+
+```sql
+CREATE TABLE tokens (
+    id_token           BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+    id_usuario         BIGINT UNSIGNED,
+    token              VARCHAR(255),
+    tipo_token         VARCHAR(100),   -- 'acceso_app' for patient login tokens
+    fecha_creacion     DATETIME DEFAULT CURRENT_TIMESTAMP,
+    fecha_expiracion   DATETIME,
+    estado             VARCHAR(20),
+    FOREIGN KEY (id_usuario) REFERENCES usuarios_sistema(id_usuario)
+);
+```
+
+A patient token has `tipo_token = 'acceso_app'`. The `estado` column tracks whether the token is still valid, and `fecha_expiracion` sets its lifetime.
+
+<Note>
+Patients are registered in `usuarios_sistema` with `rol = 'paciente'`. Their `id_clinica` links them to the clinic, maintaining tenant isolation for patient data.
+</Note>
+
+---
+
+## Password reset flow
+
+Standard (non-patient) users can reset their password through two public routes:
+
+| Route | Description |
+|-------|-------------|
+| `GET /olvide-password` | Renders the forgot-password form (named `password.request`) |
+| `GET /recuperar-password` | Renders the reset-password form (named `password.reset`) |
+
+The `usuarios_sistema` table includes `reset_password_token` and `reset_password_expires` columns to support token-based password reset.
+
+---
+
+## How roles are assigned
+
+| Event | Role assigned |
+|-------|---------------|
+| Clinic self-registration via `/register` | `doctor` |
+| Admin creates receptionist via `POST /configuracion/recepcionista` | `recepcionista` |
+| Patient record created by staff | `paciente` |
+| Platform operator seeds the admin account manually | `administrador` |
+
+<AccordionGroup>
+  <Accordion title="Can I change a user's role after creation?">
+    Role changes require a direct database update or a custom admin tool — there is no UI for changing a user's `rol` after account creation. Update the `rol` column in `usuarios_sistema` directly or build a migration to reassign roles in bulk.
+  </Accordion>
+
+  <Accordion title="Can a receptionist access clinic settings?">
+    No. The `/configuracion` routes are accessible only to authenticated users who are either the clinic's doctor or administrator. There is no explicit middleware check on the settings routes beyond `auth`, but the controller resolves the clinic via `Auth::user()->id_clinica` and uses form-request authorization to verify tenant ownership.
+  </Accordion>
+
+  <Accordion title="How does the administrador role differ from doctor?">
+    Both roles have access to the same clinic-level features. The `administrador` role additionally unlocks the global admin panel at `/admin/panel`, which provides a cross-clinic view of all tenants, subscriptions, and platform-level data. The `role:administrador` middleware enforces this restriction.
+  </Accordion>
+
+  <Accordion title="What happens if a deactivated user tries to log in?">
+    The `is_active` column on `usuarios_sistema` is set to `false` when a receptionist is removed via `DELETE /configuracion/recepcionista/{id}`. Laravel's default `Auth::attempt()` does not check `is_active` automatically — access control for inactive accounts should be enforced at the authentication layer or via an additional middleware check.
+  </Accordion>
+</AccordionGroup>

@@ -1,0 +1,114 @@
+---
+title: "Admin panel"
+description: "Global administration panel for monitoring all clinics and subscriptions"
+---
+
+The admin panel gives system-level administrators a unified view of every clinic registered on DentalConnect, including their subscription status, user counts, and platform revenue metrics.
+
+## Access
+
+```
+GET /admin/panel
+```
+
+<Warning>
+  This route requires the authenticated user to have `rol = 'administrador'` in the `usuarios_sistema` table. It is protected by the `role:administrador` middleware. Regular clinic users — including clinic owners and doctors — cannot access this panel.
+</Warning>
+
+The route is defined inside the `auth` middleware group with an additional `role:administrador` constraint:
+
+```php
+// routes/web.php
+Route::middleware('role:administrador')->group(function () {
+    Route::get('/admin/panel', [AdminPanelController::class, 'index'])->name('admin.panel');
+});
+```
+
+## Panel data
+
+The panel is powered by `AdminPanelController::index()` (`app/Http/Controllers/AdminPanelController.php`), which queries four data sets and passes them to the `admin.panel` view.
+
+### Clinic list
+
+All clinics are loaded with eager-loaded counts and their active subscription:
+
+```php
+$clinicas = Clinica::query()
+    ->withCount([
+        'usuarios as total_usuarios',
+        'usuarios as total_doctores'       => fn ($q) => $q->where('rol', 'doctor'),
+        'usuarios as total_recepcionistas' => fn ($q) => $q->where('rol', 'recepcionista'),
+        'citas as total_citas',
+    ])
+    ->with(['suscripcionActiva.plan'])
+    ->orderByDesc('created_at')
+    ->get();
+```
+
+For each clinic, the following counts are available in the view:
+
+| Variable | Description |
+|---|---|
+| `total_usuarios` | Total number of users in the clinic |
+| `total_doctores` | Users with `rol = 'doctor'` |
+| `total_recepcionistas` | Users with `rol = 'recepcionista'` |
+| `total_citas` | Total appointments linked to the clinic |
+
+The `suscripcionActiva.plan` eager load provides the clinic's current subscription record along with the plan name, slug, nivel, and precio_mensual.
+
+### Recent advertising entries
+
+The 10 most recently created advertising entries are loaded with their associated user:
+
+```php
+$publicidadReciente = Publicidad::with('usuario')
+    ->orderByDesc('created_at')
+    ->take(10)
+    ->get();
+```
+
+Each entry exposes `titulo`, `descripcion`, `imagen_path`, `activo`, and the related `usuario`.
+
+### Subscription metrics
+
+Two aggregate values are computed from the `suscripciones_clinica` table:
+
+**Active subscription count** — clinics in `active` or `trialing` state:
+
+```php
+$suscripcionesActivas = SuscripcionClinica::whereIn('estado', ['active', 'trialing'])->count();
+```
+
+**Monthly Recurring Revenue (MRR)** — sum of `precio_mensual` for all active and trialing subscriptions, joined against `saas_planes`:
+
+```php
+$mrr = SuscripcionClinica::query()
+    ->join('saas_planes', 'saas_planes.id_plan', '=', 'suscripciones_clinica.id_plan')
+    ->whereIn('suscripciones_clinica.estado', ['active', 'trialing'])
+    ->sum('saas_planes.precio_mensual');
+```
+
+MRR is denominated in MXN and reflects the sum of plan prices, not the `monto_periodo` stored on individual subscription records. This ensures the value is always up to date with the current plan pricing.
+
+## View variables
+
+The following variables are passed to the `admin.panel` Blade view:
+
+| Variable | Type | Description |
+|---|---|---|
+| `$clinicas` | Collection | All clinics with counts and active subscription |
+| `$publicidadReciente` | Collection | 10 most recent `Publicidad` records |
+| `$suscripcionesActivas` | int | Count of clinics with `active` or `trialing` subscriptions |
+| `$mrr` | float | Monthly recurring revenue in MXN |
+
+<AccordionGroup>
+  <Accordion title="How is the active subscription determined per clinic?">
+    Each clinic has a `suscripcionActiva()` relationship that returns the single most recent `SuscripcionClinica` record where `estado` is `active` or `trialing`, ordered by `periodo_fin` descending. This is eager-loaded via `with(['suscripcionActiva.plan'])` in the panel query, so no additional queries are fired per clinic row.
+  </Accordion>
+  <Accordion title="What does the advertising section show?">
+    The `publicidadReciente` collection shows the 10 latest entries from the `publicidad` table platform-wide, regardless of which clinic they belong to. Each record includes the `titulo`, optional `descripcion`, `imagen_path`, `activo` flag, and the associated user via the `usuario` relationship. Only clinics on Premium or Ultra can create advertising entries.
+  </Accordion>
+  <Accordion title="Does MRR account for mid-cycle upgrades or downgrades?">
+    No. MRR is computed by summing the current `precio_mensual` from `saas_planes` for all active subscriptions at the moment the panel loads. It does not account for proration, billing cycles, or changes within a period. Use the Stripe Dashboard for exact revenue reporting.
+  </Accordion>
+</AccordionGroup>

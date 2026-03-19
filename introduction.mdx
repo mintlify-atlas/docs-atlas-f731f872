@@ -1,0 +1,71 @@
+---
+title: "Introduction"
+description: "DentalConnect is a multi-tenant SaaS platform built for dental clinics — manage patients, appointments, treatments, and billing in one place."
+---
+
+## What is DentalConnect?
+
+DentalConnect is a complete clinic management system developed by Sakari, designed specifically for dental practices. It provides a secure, multi-tenant environment where each clinic operates in complete data isolation, with a full suite of operational tools and a SaaS subscription layer for platform access.
+
+<CardGroup cols={2}>
+  <Card title="Patient Management" icon="user-doctor" href="/features/patient-management">
+    Complete patient records with medical history, allergies, blood type, and emergency contacts.
+  </Card>
+  <Card title="Appointment Scheduling" icon="calendar-check" href="/features/appointments">
+    Real-time doctor availability, slot management, and calendar visualization.
+  </Card>
+  <Card title="Odontogram" icon="tooth" href="/features/odontogram">
+    Interactive per-tooth dental condition tracking with AJAX updates.
+  </Card>
+  <Card title="Treatments" icon="kit-medical" href="/features/treatments">
+    Treatment plans, clinical evolutions, and progress photo uploads.
+  </Card>
+  <Card title="Cash Register" icon="cash-register" href="/features/cash-register">
+    Income tracking, payment recording, and monthly revenue summaries.
+  </Card>
+  <Card title="SaaS Plans" icon="credit-card" href="/saas/plans">
+    Basic, Premium, and Ultra subscription tiers with Stripe-powered checkout.
+  </Card>
+</CardGroup>
+
+## Platform architecture
+
+DentalConnect is a **multi-tenant** Laravel application. Each dental clinic registers as a tenant and all data — patients, appointments, staff, and billing — is scoped to that clinic's `id_clinica`. There is no shared data between clinics.
+
+```
+Clinic (id_clinica)
+├── Users (roles: administrador, doctor, recepcionista, paciente)
+├── Patients → Appointments → Treatments → Odontogram
+├── Inventory & Cash Register
+├── Advertising (Premium+ only)
+└── SaaS Subscription (Basic / Premium / Ultra)
+```
+
+## Roles
+
+| Role | Description |
+|------|-------------|
+| `administrador` | Full access to clinic settings, staff, and the global admin panel |
+| `doctor` | Access to patient records, appointments, treatments, and odontogram |
+| `recepcionista` | Can manage appointments and view patient lists |
+| `paciente` | Patient-facing access via token-based login |
+
+## Tech stack
+
+- **Framework**: Laravel 12 (PHP 8.2+)
+- **Frontend**: Blade templates with Vite asset pipeline
+- **Database**: MySQL (Eloquent ORM)
+- **Payments**: Stripe Checkout + Webhooks
+- **PDF generation**: barryvdh/laravel-dompdf
+- **Hosting**: Procfile-based deployment (Railway/Render compatible)
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Set up DentalConnect locally in under 10 minutes.
+  </Card>
+  <Card title="Deployment" icon="server" href="/deployment">
+    Deploy to production with environment configuration.
+  </Card>
+</CardGroup>

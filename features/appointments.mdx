@@ -1,0 +1,128 @@
+---
+title: "Appointment scheduling"
+description: "Schedule and manage dental appointments with real-time availability"
+---
+
+DentalConnect uses a slot-based scheduling engine that checks doctor availability in 15-minute intervals. The dashboard calendar gives a visual overview of each day's capacity so you can book or reschedule without double-booking.
+
+## Calendar availability
+
+When you open the scheduler, the mini-calendar fetches availability for the current month from:
+
+```http
+GET /api/calendario/disponibilidad?mes={m}&anio={y}
+```
+
+Each day is assigned one of four states:
+
+| Color | State (`estado`) | Meaning |
+|---|---|---|
+| Green | `verde` | Clinic is open and slots are available |
+| Yellow | `amarillo` | Clinic is open but partially booked |
+| Red | `rojo` | Clinic is closed or all slots are at capacity |
+| Gray | `gris` | Date is in the past — not selectable |
+
+The engine works in 15-minute slots between the clinic's configured `hora_inicio` and `hora_fin` for each day of the week. A slot is considered occupied when every available doctor has a confirmed or pending appointment (or a blocked schedule) that overlaps it.
+
+## Scheduling a new appointment
+
+<Steps>
+  <Step title="Select a patient">
+    From **Patients**, locate the patient row and click **Schedule appointment**. This pre-fills the patient field in the appointment form.
+  </Step>
+  <Step title="Choose a date">
+    Click a green or yellow day on the calendar. Gray and red days are not clickable.
+  </Step>
+  <Step title="Choose a time and duration">
+    Select an available start time from the time picker. Allowed durations are **15 minutes** or **30 minutes**.
+
+    To see which slots are already taken for a given date, call:
+
+    ```http
+    GET /api/calendario/horas-ocupadas?fecha={YYYY-MM-DD}
+    ```
+
+    The response lists `horas_ocupadas` (array of `HH:MM` strings) and confirms that the slot interval is 15 minutes.
+  </Step>
+  <Step title="Select a service">
+    Choose a service from your clinic's catalogue. The appointment is pre-filled with that service's `precio_base` as the `costo_estimado`.
+  </Step>
+  <Step title="Save">
+    The system finds the first available doctor (`buscarDoctorDisponible`) who has no overlapping appointment and no active block in `horarios_bloqueados` for the requested window. The appointment is created with `estado_cita = 'pendiente'`.
+
+    If no doctor is free, the form returns an error — choose a different time or duration.
+  </Step>
+</Steps>
+
+## Appointment fields
+
+| Field | Column | Notes |
+|---|---|---|
+| Patient | `id_paciente` | FK → `pacientes` |
+| Doctor | `id_doctor` | Assigned automatically by availability check |
+| Service | `id_servicio` | FK → `catalogo_servicios` |
+| Start | `fecha_hora_inicio` | `DATETIME` |
+| End | `fecha_hora_fin` | Computed from start + duration |
+| Status | `estado_cita` | `pendiente`, `confirmada`, `completada`, `cancelada` |
+| Estimated cost | `costo_estimado` | `decimal(10,2)`, defaults to service `precio_base` |
+| Notes / reason | `motivo` | `varchar(255)` — stores service name or clinical note |
+
+## Appointment states
+
+| State | Description |
+|---|---|
+| `pendiente` | Default state on creation — appears in the dashboard list |
+| `confirmada` | Confirmed by clinic staff |
+| `completada` | Appointment finished — removed from the pending list |
+| `cancelada` | Cancelled — excluded from availability calculations |
+
+## Updating an appointment
+
+Open the appointment modal from the dashboard and use the update form. Changes are sent to:
+
+```http
+POST /citas/{id}/actualizar
+```
+
+You can update any combination of the following in a single request:
+
+- **Status** (`estado_cita`) — change to `confirmada` or `completada`.
+- **Estimated cost** (`costo_estimado`).
+- **Date and time** (`nueva_fecha`, `nueva_hora`, `nueva_duracion_minutos`) — the availability check runs again. If no doctor is free the update is rejected with HTTP 422.
+- **Clinical notes** (`notas_seguimiento`) — saved to `seguimiento_clinico.observaciones` and also written to `cita.motivo`.
+- **Payment** (`monto_abono`) — creates an `ingresos_caja` record if the value is greater than zero.
+
+## Recording a payment during an appointment
+
+Passing `monto_abono` in the update request creates a cash register entry linked to the appointment:
+
+```json
+{
+  "monto_abono": 500.00
+}
+```
+
+The system creates an `ingresos_caja` row with:
+- `id_cita` — the appointment being paid
+- `monto` — the amount supplied
+- `metodo` — `efectivo` (default)
+- `descripcion` — `"Abono en cita: {motivo}"`
+- `fecha_ingreso` — current timestamp
+
+## Marking an appointment complete
+
+Click **Complete** in the appointment modal or call:
+
+```http
+POST /api/citas/{id}/completar
+```
+
+This sets `estado_cita = 'completada'` and removes the appointment from the pending list without requiring any additional form fields.
+
+## Clinical notes
+
+Clinical notes (`seguimiento_clinico`) are attached to appointments, not to patients directly. To read all notes for a patient, traverse through the patient's appointments:
+
+```php
+$paciente->citas->flatMap->seguimientos
+```

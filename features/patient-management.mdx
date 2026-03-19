@@ -1,0 +1,107 @@
+---
+title: "Patient management"
+description: "Register and manage complete patient records"
+---
+
+DentalConnect stores every patient as two linked records: a `usuarios_sistema` login account and a `pacientes` profile. All records are scoped to the clinic's `id_clinica` and are permanently retained to comply with NOM-004-SSA3-2012.
+
+## Registering a new patient
+
+<Steps>
+  <Step title="Open the patient list">
+    Navigate to **Patients** in the sidebar. The list shows all active patients for your clinic, ordered by registration date.
+  </Step>
+  <Step title="Fill in the registration form">
+    Click **New patient** to open the registration modal. Complete the required fields (marked below) and any optional medical or address fields you have available.
+  </Step>
+  <Step title="Add an emergency contact (optional)">
+    If you provide both `emergencia_nombre` and `emergencia_apellido_paterno`, a `contacto_emergencia` record is created and linked to the patient. The contact is optional — the patient record is saved regardless.
+  </Step>
+  <Step title="Submit">
+    On success the system runs a single database transaction that:
+    1. Creates a `usuarios_sistema` account with role `paciente` and a temporary password of `dental123`.
+    2. Creates the `pacientes` profile linked to that user.
+    3. Generates an access token in the format `PAC-XXXXXX` (six random uppercase characters) valid for one year.
+
+    The token is displayed in the success banner — copy it and share it with the patient so they can log in to the mobile app.
+  </Step>
+</Steps>
+
+<Note>
+  The temporary password is `dental123`. Instruct the patient to change it on first login.
+</Note>
+
+## Patient fields
+
+| Field | Column | Notes |
+|---|---|---|
+| First name | `nombre` | Required |
+| Paternal surname | `apellido_paterno` | Required |
+| Maternal surname | `apellido_materno` | Optional |
+| Date of birth | `fecha_nacimiento` | `DATE` — used to compute age |
+| Sex | `sexo` | Enum: `M`, `F`, `O` |
+| Phone | `telefono` | `varchar(20)` |
+| Email | `correo_electronico` | Must be unique across `usuarios_sistema.email` |
+| Blood type | `tipo_sangre` | `varchar(5)`, e.g. `A+`, `O-` |
+| Weight | `peso` | `decimal(5,2)` in kilograms |
+| Address | `direccion` | Free-text `varchar(255)` |
+| Occupation | `ocupacion` | `varchar(100)` |
+| Chronic conditions | `enfermedades_cronicas` | Free text |
+| Allergies | `alergias` | Free text |
+
+## Emergency contact fields
+
+| Field | Column |
+|---|---|
+| First name | `nombre` |
+| Paternal surname | `apellido_paterno` |
+| Maternal surname | `apellido_materno` |
+| Phone | `numero_telefono` |
+
+An emergency contact is only created (or updated) when `emergencia_nombre` **and** `emergencia_apellido_paterno` are both provided. If a contact already exists on the record, submitting new values updates it in place.
+
+## Patient access token
+
+Every patient receives one access token stored in the `tokens` table:
+
+```
+PAC-XXXXXX
+```
+
+- Format: the literal prefix `PAC-` followed by six random uppercase alphanumeric characters.
+- Type: `acceso_app`
+- Status: `activo`
+- Expiry: one year from registration.
+
+The patient uses this token to authenticate in the mobile app. Tokens are not rotated automatically — reissue one manually if the patient loses access.
+
+## Updating a patient record
+
+Navigate to the patient's row, click **Edit**, change the required fields, and save. The update transaction modifies:
+
+- The `pacientes` row: `correo_electronico`, `tipo_sangre`, `telefono`, `peso`, `direccion`, `ocupacion`, `enfermedades_cronicas`, `alergias`.
+- The linked `usuarios_sistema` row: `email` (kept in sync with `correo_electronico`).
+- The `contacto_emergencia` row, if applicable.
+
+<Tip>
+  Only the fields listed above are editable after registration. Name and date of birth are immutable once saved.
+</Tip>
+
+## Progress photo upload
+
+You can upload a progress photo for any patient at any time via the internal API:
+
+```http
+POST /api/pacientes/{id}/foto
+Content-Type: multipart/form-data
+
+foto: <image file>   # jpeg, png, jpg, webp — max 5 MB
+```
+
+The file is stored under `storage/app/public/pacientes/fotos/` and the path is written to the `archivos` table (`tipo = 'imagen'`). If a photo already exists for the patient, the old file is deleted and replaced.
+
+## Record retention policy
+
+<Warning>
+  Patient deletion is **disabled**. The `destroy` action returns an error for all roles. Records must be retained for a minimum of five years per **NOM-004-SSA3-2012** (Clinical records — obligatory specifications). To deactivate a patient without deleting their data, set `is_active = false`.
+</Warning>

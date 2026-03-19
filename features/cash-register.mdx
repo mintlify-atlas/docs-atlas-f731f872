@@ -1,0 +1,89 @@
+---
+title: "Cash register"
+description: "Track clinic income, payments, and monthly revenue"
+---
+
+The cash register module records every payment received by the clinic. Income entries are stored in `ingresos_caja` and are always linked to an appointment. The dashboard surfaces monthly totals and flags low-stock inventory items at a glance.
+
+## How income is recorded
+
+Income is created in two ways:
+
+1. **During an appointment update** — when `monto_abono` is included in the appointment update request, the system automatically creates an `ingresos_caja` row linked to that appointment.
+2. **Directly** — a cash register entry can be created independently by posting to the appropriate route.
+
+All income is scoped to the clinic via `id_clinica`.
+
+## Income entry fields
+
+| Field | Column | Notes |
+|---|---|---|
+| Clinic | `id_clinica` | FK → `clinicas` |
+| Appointment | `id_cita` | FK → `citas` — nullable, but always set when created via appointment update |
+| Amount | `monto` | `decimal(10,2)` |
+| Payment method | `metodo` | Enum: `efectivo`, `tarjeta`, `transferencia`, `otro` |
+| Description | `descripcion` | `varchar(200)` — e.g. `"Abono en cita: Limpieza dental"` |
+| Income date | `fecha_ingreso` | `DATETIME` — set to `now()` on creation |
+
+<Note>
+  When an appointment update triggers a payment, `metodo` is set to `efectivo` by default. If the patient paid by card or transfer, update the `metodo` field directly in the database or extend the appointment form.
+</Note>
+
+## Payment recording workflow
+
+<Steps>
+  <Step title="Open the appointment modal">
+    From the dashboard, click any pending appointment to open its detail modal.
+  </Step>
+  <Step title="Enter the payment amount">
+    Type the amount received in the **Payment** field (`monto_abono`). Leave it blank or zero if no payment is being recorded this visit.
+  </Step>
+  <Step title="Save the appointment">
+    Submit the update form. The system creates an `ingresos_caja` row and links it to the appointment via `id_cita`.
+  </Step>
+  <Step title="Review the financial summary">
+    The appointment modal shows a live financial summary:
+    - **Total** (`costo_estimado`) — the agreed treatment cost.
+    - **Paid** — sum of all `monto` values across `ingresos_caja` rows for this appointment.
+    - **Balance** — remaining amount owed (never negative).
+  </Step>
+</Steps>
+
+## Monthly income on the dashboard
+
+The dashboard displays total income for the current calendar month:
+
+```php
+$ingresosMes = IngresoCaja::where('id_clinica', $idClinica)
+    ->whereMonth('fecha_ingreso', $hoy->month)
+    ->whereYear('fecha_ingreso', $hoy->year)
+    ->sum('monto');
+```
+
+This figure updates in real time as new payments are recorded.
+
+## Low-stock inventory alerts
+
+The dashboard also queries the `inventario` table for items with fewer than 5 units in stock:
+
+```php
+$itemsBajoStock = Inventario::where('id_clinica', $idClinica)
+    ->where('stock', '<', 5)
+    ->orderBy('stock', 'asc')
+    ->take(5)
+    ->get();
+```
+
+Up to five items are shown in the alert panel, sorted from lowest to highest stock. Reorder any item before it reaches zero.
+
+### Inventory item fields
+
+| Field | Column | Type |
+|---|---|---|
+| Item name | `nombre_item` | `varchar(100)` |
+| Stock | `stock` | `integer` — triggers alert when `< 5` |
+| Unit price | `precio` | `decimal(10,2)` |
+
+<Tip>
+  Keep the stock threshold in mind when receiving deliveries. Update the `stock` field immediately after restocking to clear the alert from the dashboard.
+</Tip>

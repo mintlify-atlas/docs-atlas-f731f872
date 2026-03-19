@@ -1,0 +1,174 @@
+---
+title: "Clinic setup"
+description: "Configure your dental clinic's profile, staff, and operating hours"
+---
+
+Every DentalConnect tenant is a single clinic record in the `clinicas` table, identified by `id_clinica`. All users, appointments, and operational data belong to this clinic. This page explains how to complete your clinic's profile after registration, manage reception staff, and set operating hours.
+
+---
+
+## Initial setup workflow
+
+<Steps>
+  <Step title="Register your clinic and doctor account">
+    Go to `/register` and fill in your personal details and clinic name. Registration creates three records in a single database transaction:
+
+    - A row in `clinicas` with your clinic name, contact details, and an initial `config_anticipo_pct` of `0.00`
+    - A row in `usuarios_sistema` with `rol = 'doctor'` linked to the new clinic
+    - A row in `doctores` linking your professional profile to your user account
+
+    After registration you are redirected to `/login`.
+  </Step>
+
+  <Step title="Log in and open settings">
+    Sign in at `/login` with your email and password, then navigate to **Settings** at `/configuracion`.
+
+    The settings page loads:
+    - Your clinic profile (`clinicas`)
+    - Your doctor profile (`doctores`)
+    - All active receptionists for your clinic
+    - The 7-day operating hours schedule (`horarios_clinica`)
+
+    If no operating hours records exist yet, the system creates defaults automatically: Monday–Friday 09:00–18:00, Saturday and Sunday closed.
+  </Step>
+
+  <Step title="Update your clinic profile">
+    Submit the clinic form to `POST /configuracion/clinica`. The editable fields are:
+
+    | Field | Description |
+    |-------|-------------|
+    | `nombre_comercial` | Commercial name of the clinic |
+    | `numero_telefono` | Contact phone number (up to 15 characters) |
+    | `localidad` | City or locality (up to 100 characters) |
+    | `estado` | State or region (up to 50 characters) |
+    | `codigo_postal` | Postal code (up to 10 characters) |
+    | `config_anticipo_pct` | Deposit percentage required at booking (decimal, e.g. `30.00` for 30%) |
+
+    On success the page reloads with a confirmation message.
+  </Step>
+
+  <Step title="Update your doctor profile">
+    Submit the user form to `POST /configuracion/usuario` to update your staff account. The request accepts:
+
+    | Field | Description |
+    |-------|-------------|
+    | `id_usuario` | ID of the user to update (must belong to your clinic) |
+    | `nombre_completo` | Full name |
+    | `email` | Email address (must be unique across all users) |
+    | `password` | New password (optional — only updated when provided) |
+    | `cedula_profesional` | Professional license number (doctors only) |
+    | `horario_default` | Default schedule preference as free text (doctors only) |
+
+    When the updated user has `rol = 'doctor'`, the system upserts a row in the `doctores` table with the professional fields.
+  </Step>
+
+  <Step title="Configure operating hours">
+    Submit the hours form to `POST /configuracion/horarios`. See [Operating hours](#operating-hours) below for the full field reference.
+  </Step>
+
+  <Step title="Add reception staff (optional)">
+    Add receptionists as needed. See [Managing receptionists](#managing-receptionists) below.
+  </Step>
+</Steps>
+
+---
+
+## Operating hours
+
+Each clinic has exactly 7 rows in `horarios_clinica`, one per day of the week. The `dia_semana` column uses PHP/Carbon day numbering:
+
+| `dia_semana` | Day |
+|--------------|-----|
+| `0` | Sunday |
+| `1` | Monday |
+| `2` | Tuesday |
+| `3` | Wednesday |
+| `4` | Thursday |
+| `5` | Friday |
+| `6` | Saturday |
+
+The settings form sends all 7 days in a single request to `POST /configuracion/horarios`. The payload structure is:
+
+```php
+// Form input shape (processed via $request->input('dias', []))
+[
+    1 => ['activo' => '1', 'hora_inicio' => '09:00', 'hora_fin' => '18:00'],
+    2 => ['activo' => '1', 'hora_inicio' => '09:00', 'hora_fin' => '18:00'],
+    3 => ['activo' => '1', 'hora_inicio' => '09:00', 'hora_fin' => '18:00'],
+    4 => ['activo' => '1', 'hora_inicio' => '09:00', 'hora_fin' => '18:00'],
+    5 => ['activo' => '1', 'hora_inicio' => '09:00', 'hora_fin' => '18:00'],
+    6 => [],  // key absent = activo false
+    0 => [],  // key absent = activo false
+]
+```
+
+For each day, the controller calls `HorarioClinica::updateOrCreate()` keyed on `['id_clinica', 'dia_semana']`. When `activo` is false, `hora_inicio` and `hora_fin` are stored as `null`.
+
+**Default values** created on first load:
+
+| Day | Active | Open | Close |
+|-----|--------|------|-------|
+| Monday–Friday | Yes | 09:00 | 18:00 |
+| Saturday | No | — | — |
+| Sunday | No | — | — |
+
+<Note>
+Operating hours drive appointment slot availability in the calendar. Days marked as inactive are shown as unavailable when booking new appointments.
+</Note>
+
+---
+
+## Appointment deposit (anticipo)
+
+The `config_anticipo_pct` field on the `clinicas` table stores the percentage of the estimated appointment cost that must be collected as a deposit at booking time. It is stored as a decimal value.
+
+```
+config_anticipo_pct = 30.00  →  30% of costo_estimado collected upfront
+config_anticipo_pct = 0.00   →  no deposit required (default)
+```
+
+The deposit percentage is set in the clinic profile form. Enter a value between `0.00` and `100.00`.
+
+---
+
+## Managing receptionists
+
+Receptionists are `usuarios_sistema` rows with `rol = 'recepcionista'` linked to your `id_clinica`.
+
+### Add a receptionist
+
+Send a `POST` request to `/configuracion/recepcionista` with:
+
+| Field | Validation | Description |
+|-------|------------|-------------|
+| `nombre_completo` | required, max 100 | Full name |
+| `email` | required, unique in `usuarios_sistema` | Login email |
+| `password` | required, min 8, confirmed | Initial password |
+| `password_confirmation` | required | Password confirmation |
+
+The new user is created with `rol = 'recepcionista'` and `is_active = true`, scoped to your clinic's `id_clinica`.
+
+### Remove a receptionist
+
+Send a `DELETE` request to `/configuracion/recepcionista/{id}`. The controller verifies that the target user belongs to your clinic and has `rol = 'recepcionista'` before proceeding.
+
+Removal is a **soft deactivation**: the record is not deleted. Instead, `is_active` is set to `false`. The user can no longer log in, and they no longer appear in the active receptionist list.
+
+<Note>
+Only users with access to the settings page (typically the doctor/owner of the clinic) can add or remove receptionists. The tenant check in `destroyRecepcionista` ensures you cannot deactivate staff belonging to another clinic.
+</Note>
+
+---
+
+## Configuration routes reference
+
+| Method | Route | Controller method | Description |
+|--------|-------|-------------------|-------------|
+| `GET` | `/configuracion` | `index` | Load settings page with clinic, staff, and hours data |
+| `POST` | `/configuracion/clinica` | `updateClinica` | Update clinic profile |
+| `POST` | `/configuracion/usuario` | `updateUsuario` | Update a user's profile and optional doctor fields |
+| `POST` | `/configuracion/recepcionista` | `storeRecepcionista` | Add a new receptionist account |
+| `DELETE` | `/configuracion/recepcionista/{id}` | `destroyRecepcionista` | Deactivate a receptionist |
+| `POST` | `/configuracion/horarios` | `updateHorarios` | Update all 7 operating hour records |
+
+All routes require authentication (`middleware: auth`). The controller uses `Clinica::find(Auth::user()->id_clinica)` to resolve the current tenant and calls `abort_if(!$clinica, 403)` to enforce tenant isolation.

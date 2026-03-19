@@ -1,0 +1,88 @@
+---
+title: "Advertising"
+description: "Manage promotional content — available on Premium and Ultra plans"
+---
+
+The advertising module lets clinic administrators publish promotional banners and announcements. Each promotion includes a title, optional description, and an image that is stored on disk and displayed in the application.
+
+<Warning>
+  This feature requires a **Premium** or **Ultra** subscription. Attempting to access the advertising section on a Basic plan returns a plan-upgrade prompt. See [SaaS plans](/saas/plans) for details on upgrading.
+</Warning>
+
+## How it works
+
+Promotions are stored in the `publicidad` table and are scoped to the authenticated user (`id_usuario`). The index page shows all promotions for your clinic ordered by creation date (newest first).
+
+Images are uploaded as part of the create form. Supported formats are `jpeg`, `png`, `jpg`, and `gif` with a maximum file size of **2 MB**. Files are stored under `storage/app/public/ads/`.
+
+## Promotion fields
+
+| Field | Column | Notes |
+|---|---|---|
+| Owner | `id_usuario` | FK → `usuarios_sistema` — set to the authenticated user |
+| Title | `titulo` | Required, `varchar(100)` |
+| Description | `descripcion` | Optional, free text |
+| Image path | `imagen_path` | Relative path under `storage/public/ads/` |
+| Active | `activo` | Boolean — `true` by default |
+
+## Creating a promotion
+
+<Steps>
+  <Step title="Navigate to Advertising">
+    Click **Advertising** in the sidebar. The route `/publicidad` is only visible on Premium and Ultra plans.
+  </Step>
+  <Step title="Fill in the form">
+    Enter a title and upload a promotional image. The description is optional.
+  </Step>
+  <Step title="Publish">
+    Click **Publish**. The image is saved to disk and a new `publicidad` record is created with `activo = true`.
+  </Step>
+</Steps>
+
+## Deleting a promotion
+
+Click **Delete** next to any promotion. The system:
+1. Deletes the image file from disk (`storage/public/ads/`).
+2. Deletes the `publicidad` database record.
+
+Deletion is permanent — there is no archive or soft delete.
+
+## Available actions
+
+| Action | Method | Route |
+|---|---|---|
+| List promotions | `GET` | `/publicidad` |
+| Create promotion | `POST` | `/publicidad` |
+| Delete promotion | `DELETE` | `/publicidad/{id}` |
+
+<Note>
+  There is no edit action. To update a promotion, delete it and create a new one with the revised content.
+</Note>
+
+## Plan requirement
+
+All advertising routes are protected by the `plan:premium` middleware:
+
+```php
+Route::resource('publicidad', PublicidadController::class)
+    ->only(['index', 'store', 'destroy'])
+    ->middleware('plan:premium');
+```
+
+If your clinic is on the Basic plan, requests to these routes are intercepted and redirected to the subscriptions page.
+
+## Upgrading to access advertising
+
+<Steps>
+  <Step title="Go to Subscriptions">
+    Navigate to **Settings → Subscriptions** or visit `/suscripciones`.
+  </Step>
+  <Step title="Select a plan">
+    Choose the **Premium** or **Ultra** plan.
+  </Step>
+  <Step title="Complete checkout">
+    You are redirected to Stripe Checkout. After a successful payment the `plan:premium` middleware grants access immediately.
+  </Step>
+</Steps>
+
+See [SaaS plans](/saas/plans) and [Stripe integration](/saas/stripe-integration) for full details on the subscription system.

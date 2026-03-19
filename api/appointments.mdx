@@ -1,0 +1,413 @@
+---
+title: "Appointments API"
+description: "AJAX endpoints for appointment management and scheduling"
+---
+
+<Note>
+  All endpoints require an active session. Include `X-CSRF-TOKEN` in the headers of every `POST` request.
+</Note>
+
+## Get appointment modal data
+
+```
+GET /api/citas/{id}/modal-detalles
+```
+
+Returns the full detail payload used to populate the appointment detail modal, including patient clinical data, appointment history, financial summary, odontogram records, and income entries.
+
+### Path parameters
+
+<ParamField path="id" type="integer" required>
+  The `id_cita` of the appointment to retrieve.
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean" required>
+  Always `true` on a successful response.
+</ResponseField>
+
+<ResponseField name="paciente" type="object" required>
+  Patient clinical profile.
+  <Expandable title="properties">
+    <ResponseField name="id_paciente" type="integer">
+      Patient primary key.
+    </ResponseField>
+    <ResponseField name="nombres" type="string">
+      Patient first name.
+    </ResponseField>
+    <ResponseField name="paterno" type="string">
+      Paternal last name.
+    </ResponseField>
+    <ResponseField name="materno" type="string">
+      Maternal last name.
+    </ResponseField>
+    <ResponseField name="edad" type="string">
+      Age as a display string, e.g. `"34 años"`. Returns `"N/A"` when date of birth is not set.
+    </ResponseField>
+    <ResponseField name="edad_numero" type="integer | null">
+      Age as a raw integer for calculations. `null` when date of birth is not set.
+    </ResponseField>
+    <ResponseField name="sexo" type="string">
+      Display label: `"Masculino"`, `"Femenino"`, or `"Otro"`.
+    </ResponseField>
+    <ResponseField name="telefono" type="string | null">
+      Contact phone number.
+    </ResponseField>
+    <ResponseField name="tipo_sangre" type="string | null">
+      Blood type, e.g. `"O+"`.
+    </ResponseField>
+    <ResponseField name="peso" type="string">
+      Weight as a display string, e.g. `"72.5 kg"`. Returns `"N/A"` when not set.
+    </ResponseField>
+    <ResponseField name="alergias" type="string">
+      Free-text allergy notes. Defaults to `"Ninguna registrada"`.
+    </ResponseField>
+    <ResponseField name="enfermedades" type="string">
+      Free-text chronic illness notes. Defaults to `"Ninguna registrada"`.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="filas_tabla" type="array" required>
+  Full appointment history for the patient, ordered most recent first.
+  <Expandable title="item properties">
+    <ResponseField name="id_cita" type="integer">
+      Appointment primary key.
+    </ResponseField>
+    <ResponseField name="dia" type="string">
+      Appointment date formatted as `DD/MM/YYYY`.
+    </ResponseField>
+    <ResponseField name="hora" type="string">
+      Time range formatted as `HH:MM AM – HH:MM AM`, e.g. `"09:00 AM – 09:30 AM"`.
+    </ResponseField>
+    <ResponseField name="seguimiento" type="string">
+      Reason/motive for the visit, or service name as a fallback.
+    </ResponseField>
+    <ResponseField name="abono" type="string">
+      Amount paid toward this appointment, formatted with two decimal places, e.g. `"500.00"`.
+    </ResponseField>
+    <ResponseField name="estado" type="string">
+      Appointment status: `pendiente`, `confirmada`, `cancelada`, or `completada`.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="finanzas" type="object" required>
+  Financial summary for the current appointment.
+  <Expandable title="properties">
+    <ResponseField name="total" type="string">
+      Estimated cost formatted with two decimal places.
+    </ResponseField>
+    <ResponseField name="pagado" type="string">
+      Total amount paid across all income entries.
+    </ResponseField>
+    <ResponseField name="restante" type="string">
+      Remaining balance (never negative).
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="fecha_cita" type="object" required>
+  Calendar position of the appointment.
+  <Expandable title="properties">
+    <ResponseField name="mes" type="integer">
+      Month as an integer (1–12).
+    </ResponseField>
+    <ResponseField name="anio" type="integer">
+      Four-digit year.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="odontograma" type="array" required>
+  All odontogram records for the patient, ordered by `id_odontograma` descending. See [Odontogram API](/api/odontogram) for the shape of each record.
+</ResponseField>
+
+<ResponseField name="ingresos" type="array" required>
+  Income entries linked to this specific appointment (`ingresos_caja` records).
+</ResponseField>
+
+### Example
+
+```bash
+curl https://your-app-url/api/citas/42/modal-detalles \
+  -H "Accept: application/json" \
+  --cookie "laravel_session=<session>"
+```
+
+```json
+{
+  "success": true,
+  "paciente": {
+    "id_paciente": 7,
+    "nombres": "María",
+    "paterno": "López",
+    "materno": "Ramírez",
+    "edad": "34 años",
+    "edad_numero": 34,
+    "sexo": "Femenino",
+    "telefono": "5512345678",
+    "tipo_sangre": "O+",
+    "peso": "62.00 kg",
+    "alergias": "Penicilina",
+    "enfermedades": "Ninguna registrada"
+  },
+  "filas_tabla": [
+    {
+      "id_cita": 42,
+      "dia": "15/03/2026",
+      "hora": "10:00 AM – 10:30 AM",
+      "seguimiento": "Limpieza dental",
+      "abono": "300.00",
+      "estado": "pendiente"
+    }
+  ],
+  "finanzas": {
+    "total": "800.00",
+    "pagado": "300.00",
+    "restante": "500.00"
+  },
+  "fecha_cita": { "mes": 3, "anio": 2026 },
+  "odontograma": [],
+  "ingresos": []
+}
+```
+
+---
+
+## Mark appointment as completed
+
+```
+POST /api/citas/{id}/completar
+```
+
+Sets `estado_cita` to `completada`. This is the quick-complete action available directly from the dashboard without opening additional forms.
+
+### Path parameters
+
+<ParamField path="id" type="integer" required>
+  The `id_cita` of the appointment to complete.
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  `true` when the appointment was updated successfully.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Human-readable confirmation: `"Cita marcada como completada."`
+</ResponseField>
+
+### Example
+
+```bash
+curl -X POST https://your-app-url/api/citas/42/completar \
+  -H "Accept: application/json" \
+  -H "X-CSRF-TOKEN: <token>" \
+  --cookie "laravel_session=<session>"
+```
+
+```json
+{
+  "success": true,
+  "message": "Cita marcada como completada."
+}
+```
+
+---
+
+## Get calendar availability
+
+```
+GET /api/calendario/disponibilidad
+```
+
+Returns the availability status for every day in a given month. Used to color-code the mini-calendar in the scheduling UI.
+
+### Query parameters
+
+<ParamField query="mes" type="integer" default="current month">
+  Month number (1–12).
+</ParamField>
+
+<ParamField query="anio" type="integer" default="current year">
+  Four-digit year, e.g. `2026`.
+</ParamField>
+
+### Response
+
+An object keyed by day number (`"1"` through `"31"`). Days that do not exist in the requested month are omitted.
+
+<ResponseField name="{day}" type="object">
+  Availability data for that calendar day.
+  <Expandable title="properties">
+    <ResponseField name="estado" type="string">
+      Color code indicating availability:
+      - `verde` — open slots available
+      - `amarillo` — partially booked
+      - `rojo` — fully booked or clinic is closed
+      - `gris` — past date
+    </ResponseField>
+    <ResponseField name="clickable" type="boolean">
+      Whether the user can click this day to book. `false` for past dates, fully booked days, and days the clinic is closed.
+    </ResponseField>
+    <ResponseField name="hora_inicio" type="string">
+      Clinic opening time for that day in `HH:MM` format, e.g. `"09:00"`.
+    </ResponseField>
+    <ResponseField name="hora_fin" type="string">
+      Clinic closing time for that day in `HH:MM` format, e.g. `"18:00"`.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example
+
+```bash
+curl "https://your-app-url/api/calendario/disponibilidad?mes=3&anio=2026" \
+  -H "Accept: application/json" \
+  --cookie "laravel_session=<session>"
+```
+
+```json
+{
+  "1": { "estado": "gris", "clickable": false, "hora_inicio": "09:00", "hora_fin": "18:00" },
+  "2": { "estado": "gris", "clickable": false, "hora_inicio": "09:00", "hora_fin": "18:00" },
+  "19": { "estado": "amarillo", "clickable": true, "hora_inicio": "09:00", "hora_fin": "18:00" },
+  "20": { "estado": "verde", "clickable": true, "hora_inicio": "09:00", "hora_fin": "18:00" },
+  "21": { "estado": "rojo", "clickable": false, "hora_inicio": "09:00", "hora_fin": "18:00" }
+}
+```
+
+---
+
+## Get occupied time slots
+
+```
+GET /api/calendario/horas-ocupadas
+```
+
+Returns which 15-minute slots are fully booked for a given date, accounting for all doctors at the clinic and any active blocked schedules. Used to disable specific time slots in the rescheduling widget.
+
+### Query parameters
+
+<ParamField query="fecha" type="string" required>
+  Date in `YYYY-MM-DD` format, e.g. `"2026-03-20"`.
+</ParamField>
+
+### Response
+
+<ResponseField name="horas_ocupadas" type="string[]">
+  Array of occupied slot start times in `HH:MM` format. An empty array means all slots are available. If the clinic is closed on that day, this will be an empty array.
+</ResponseField>
+
+<ResponseField name="intervalo_minutos" type="integer">
+  Slot granularity in minutes. Always `15`.
+</ResponseField>
+
+<ResponseField name="duraciones_permitidas" type="integer[]">
+  Allowed appointment durations in minutes. Always `[15, 30]`.
+</ResponseField>
+
+### Example
+
+```bash
+curl "https://your-app-url/api/calendario/horas-ocupadas?fecha=2026-03-20" \
+  -H "Accept: application/json" \
+  --cookie "laravel_session=<session>"
+```
+
+```json
+{
+  "horas_ocupadas": ["09:00", "09:15", "10:30"],
+  "intervalo_minutos": 15,
+  "duraciones_permitidas": [15, 30]
+}
+```
+
+---
+
+## Update appointment
+
+```
+POST /citas/{id}/actualizar
+```
+
+Updates one or more fields of an existing appointment. All body parameters are optional — only fields that are present and non-empty are applied. If a new date/time is provided, the system searches for an available doctor before saving; if none is found, the request returns a `422`.
+
+<Warning>
+  When rescheduling, the server assigns a new doctor automatically from those available at the clinic. You cannot specify a doctor directly through this endpoint.
+</Warning>
+
+### Path parameters
+
+<ParamField path="id" type="integer" required>
+  The `id_cita` to update.
+</ParamField>
+
+### Body parameters
+
+<ParamField body="estado_cita" type="string">
+  New status: `pendiente`, `confirmada`, `cancelada`, or `completada`.
+</ParamField>
+
+<ParamField body="costo_estimado" type="number">
+  Updated estimated cost for the appointment.
+</ParamField>
+
+<ParamField body="nueva_fecha" type="string">
+  New appointment date in `YYYY-MM-DD` format. Must be provided together with `nueva_hora` for a complete reschedule.
+</ParamField>
+
+<ParamField body="nueva_hora" type="string">
+  New appointment start time in `HH:MM` format. If omitted when `nueva_fecha` is set, the existing appointment time is preserved.
+</ParamField>
+
+<ParamField body="nueva_duracion_minutos" type="integer" default="30">
+  Appointment duration in minutes. Accepted values: `15` or `30`. Any other value defaults to `30`.
+</ParamField>
+
+<ParamField body="notas_seguimiento" type="string">
+  Clinical follow-up notes. A new `seguimiento_clinico` record is created and the appointment `motivo` field is updated.
+</ParamField>
+
+<ParamField body="monto_abono" type="number">
+  Payment amount to record. Creates a new `ingresos_caja` entry with `metodo_pago = 'efectivo'`. Ignored when `0` or not provided.
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  `true` when the appointment was saved successfully.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  `"Cita actualizada correctamente"` on success, or `"No hay doctores disponibles para ese horario y duración."` on a `422`.
+</ResponseField>
+
+### Example
+
+```bash
+curl -X POST https://your-app-url/citas/42/actualizar \
+  -H "Accept: application/json" \
+  -H "X-CSRF-TOKEN: <token>" \
+  --cookie "laravel_session=<session>" \
+  -d "nueva_fecha=2026-03-25&nueva_hora=11:00&nueva_duracion_minutos=30&monto_abono=200"
+```
+
+```json
+{
+  "success": true,
+  "message": "Cita actualizada correctamente"
+}
+```
+
+**No available doctors (422):**
+
+```json
+{
+  "success": false,
+  "message": "No hay doctores disponibles para ese horario y duración."
+}
+```
