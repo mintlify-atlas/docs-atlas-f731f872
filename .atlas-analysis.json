@@ -1,0 +1,90 @@
+{
+  "projectType": "saas",
+  "projectName": "DentalConnect",
+  "projectDescription": "A multi-tenant SaaS platform for dental clinics, providing patient management, appointment scheduling, odontogram tracking, and subscription-based plan management via Stripe.",
+  "theme": "almond",
+  "primaryColor": "#040404",
+  "lightColor": "#ef370f",
+  "darkColor": "#f79d72",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": ["introduction", "quickstart", "deployment"]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/patient-management",
+              "features/appointments",
+              "features/odontogram",
+              "features/treatments",
+              "features/cash-register",
+              "features/advertising"
+            ]
+          },
+          {
+            "group": "SaaS & Subscriptions",
+            "pages": [
+              "saas/plans",
+              "saas/stripe-integration",
+              "saas/admin-panel"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/environment",
+              "configuration/clinic-setup",
+              "configuration/roles-permissions"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Internal API",
+            "pages": [
+              "api/overview",
+              "api/appointments",
+              "api/patients",
+              "api/odontogram",
+              "api/stripe-webhook"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Multi-tenant dental clinic management with per-clinic data isolation",
+    "Patient records with medical history, allergies, blood type, and emergency contacts",
+    "Appointment scheduling with real-time doctor availability and slot management",
+    "Interactive odontogram for tracking dental conditions per tooth",
+    "Treatment and clinical evolution tracking with photo progress uploads",
+    "Cash register and income tracking with payment recording",
+    "SaaS subscription plans (Basic, Premium, Ultra) with Stripe integration",
+    "Premium plan gating (e.g., advertising module requires Premium+)",
+    "Global admin panel for monitoring all clinics, subscriptions, and MRR",
+    "Role-based access control (administrator, doctor, receptionist, patient)"
+  ],
+  "publicApiSurface": [
+    "GET /api/citas/{id}/modal-detalles — Appointment detail data (JSON)",
+    "POST /api/citas/{id}/completar — Mark appointment as completed",
+    "GET /api/calendario/disponibilidad — Monthly calendar availability",
+    "GET /api/calendario/horas-ocupadas — Occupied time slots for a date",
+    "POST /api/pacientes/{id}/foto — Upload patient progress photo",
+    "GET /api/pacientes/{id}/citas — Patient appointment history",
+    "GET /api/pacientes/{id}/evoluciones — Patient clinical evolutions",
+    "POST /api/pacientes/{id}/evoluciones — Store new clinical evolution",
+    "GET /api/pacientes/{id}/odontograma — Get patient odontogram data",
+    "POST /api/pacientes/{id}/odontograma — Update odontogram records",
+    "DELETE /api/odontograma/{id_odontograma} — Delete odontogram entry",
+    "POST /stripe/webhook — Stripe webhook for subscription sync"
+  ]
+}
